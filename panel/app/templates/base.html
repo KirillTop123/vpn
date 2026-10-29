@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ settings.brand_name }}{% endblock %}</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --text:#e7e9ee; --muted:#8b93a7; --accent:#4f8cff; --ok:#2fbf71; --bad:#e5484d; --border:#2a2f3a; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  a { color:var(--accent); text-decoration:none; }
+  header { display:flex; gap:20px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  header b { font-size:17px; margin-right:auto; }
+  main { padding:20px; max-width:1300px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
+  .stat .v { font-size:24px; font-weight:600; } .stat .l { color:var(--muted); font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  th { color:var(--muted); font-weight:500; }
+  .scroll { overflow-x:auto; }
+  input, select, button { font:inherit; color:var(--text); background:#11141a; border:1px solid var(--border); border-radius:8px; padding:7px 10px; }
+  button, .btn { background:var(--accent); border:0; color:#fff; cursor:pointer; padding:7px 12px; border-radius:8px; display:inline-block; }
+  button.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
+  button.danger { background:var(--bad); }
+  form.inline { display:inline-flex; gap:4px; margin:0; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:end; }
+  .row label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted); }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+  code, pre { background:#0b0d11; border:1px solid var(--border); border-radius:8px; padding:2px 6px; font-size:13px; }
+  pre { padding:12px; white-space:pre-wrap; word-break:break-all; }
+</style>
+</head>
+<body>
+{% block body %}
+<header>
+  <b>{{ settings.brand_name }} · админка</b>
+  <a href="/admin">Пользователи</a>
+  <a href="/admin/nodes">Серверы</a>
+  <a href="/admin/payments">Платежи</a>
+  <a href="/admin/logout" class="muted">Выйти</a>
+</header>
+<main>{% block content %}{% endblock %}</main>
+{% endblock %}
+</body>
+</html>

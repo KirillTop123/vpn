@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card scroll">
+  <table>
+    <tr><th>Дата</th><th>Пользователь</th><th>Сумма</th><th>Дней</th><th>ID платежа</th></tr>
+    {% for p in payments %}
+    <tr>
+      <td>{{ p.created_at.strftime("%d.%m.%Y %H:%M") }}</td>
+      <td>#{{ p.user_id }} {{ p.user.username if p.user else "" }}</td>
+      <td>{{ p.amount }} {{ "⭐" if p.currency == "XTR" else p.currency }}</td>
+      <td>{{ p.days }}</td>
+      <td class="muted">{{ p.provider_charge_id }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">Платежей пока нет</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

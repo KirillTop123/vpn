@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="grid" style="margin-bottom:16px">
+  <div class="card stat"><div class="v">{{ stats.users }}</div><div class="l">пользователей</div></div>
+  <div class="card stat"><div class="v ok">{{ stats.active }}</div><div class="l">с активной подпиской</div></div>
+  <div class="card stat"><div class="v">{{ stats.nodes_online }} / {{ stats.nodes }}</div><div class="l">серверов онлайн</div></div>
+  <div class="card stat"><div class="v">{{ stats.revenue_30d }} ⭐</div><div class="l">выручка за 30 дней</div></div>
+  <div class="card stat"><div class="v">{{ stats.traffic | bytes }}</div><div class="l">трафика всего</div></div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Новый пользователь</h3>
+  <form method="post" action="/admin/users" class="row">
+    <label>Имя<input name="username" placeholder="ivan"></label>
+    <label>Дней (0 = бессрочно)<input name="days" type="number" value="30" min="0" style="width:120px"></label>
+    <label>Лимит ГБ (0 = без лимита)<input name="traffic_gb" type="number" value="0" min="0" step="any" style="width:120px"></label>
+    <label>Заметка<input name="note"></label>
+    <button>Создать</button>
+  </form>
+</div>
+
+<div class="card">
+  <form class="row" method="get" style="margin-bottom:12px">
+    <input name="q" value="{{ q }}" placeholder="Поиск: имя, ID, Telegram ID, заметка" style="flex:1">
+    <button class="ghost">Найти</button>
+  </form>
+  <div class="scroll">
+  <table>
+    <tr><th>ID</th><th>Пользователь</th><th>Статус</th><th>Истекает</th><th>Трафик</th><th>Подписка</th><th>Действия</th></tr>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.id }}</td>
+      <td>{{ u.username or "—" }}{% if u.telegram_id %}<br><span class="muted">tg {{ u.telegram_id }}</span>{% endif %}
+          {% if u.note %}<br><span class="muted">{{ u.note }}</span>{% endif %}</td>
+      <td>{% if u.is_active(now) %}<span class="ok">активен</span>{% elif not u.enabled %}<span class="bad">отключён</span>{% else %}<span class="bad">истёк</span>{% endif %}</td>
+      <td>{{ u.expires_at.strftime("%d.%m.%Y %H:%M") if u.expires_at else "∞" }}</td>
+      <td>{{ u.used_total | bytes }}{% if u.traffic_limit %} / {{ u.traffic_limit | bytes }}{% endif %}</td>
+      <td><a href="/sub/{{ u.sub_token }}" target="_blank">открыть</a></td>
+      <td>
+        <form class="inline" method="post" action="/admin/users/{{ u.id }}/extend">
+          <input name="days" type="number" value="30" style="width:64px"><button class="ghost">+ дней</button>
+        </form>
+        <form class="inline" method="post" action="/admin/users/{{ u.id }}/toggle"><button class="ghost">{{ "Выкл" if u.enabled else "Вкл" }}</button></form>
+        <form class="inline" method="post" action="/admin/users/{{ u.id }}/reset-traffic"><button class="ghost" title="Сбросить трафик">↺</button></form>
+        <form class="inline" method="post" action="/admin/users/{{ u.id }}/regenerate" onsubmit="return confirm('Старая ссылка перестанет работать. Продолжить?')"><button class="ghost" title="Новая ссылка">🔑</button></form>
+        <form class="inline" method="post" action="/admin/users/{{ u.id }}/delete" onsubmit="return confirm('Удалить пользователя?')"><button class="danger">✕</button></form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="muted">Пока никого нет</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endblock %}

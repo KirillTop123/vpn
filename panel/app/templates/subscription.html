@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ settings.brand_name }} — подписка{% endblock %}
+{% block body %}
+<main style="max-width:520px">
+  <h2>{{ settings.brand_name }}</h2>
+
+  <div class="card">
+    {% if active %}
+      <p style="margin-top:0" class="ok"><b>Подписка активна</b></p>
+    {% else %}
+      <p style="margin-top:0" class="bad"><b>Подписка не активна</b> — продлите её в боте</p>
+    {% endif %}
+    <p class="muted" style="margin-bottom:0">
+      До: {{ user.expires_at.strftime("%d.%m.%Y %H:%M") + " UTC" if user.expires_at else "бессрочно" }}<br>
+      Трафик: {{ "%.2f" % (user.used_total / 1073741824) }} ГБ{% if user.traffic_limit %} из {{ "%.0f" % (user.traffic_limit / 1073741824) }} ГБ{% else %} (без лимита){% endif %}
+    </p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">1. Установите Happ</h3>
+    <p class="row">
+      <a class="btn" href="https://apps.apple.com/app/happ-proxy-utility/id6504287215">iPhone / Mac</a>
+      <a class="btn" href="https://play.google.com/store/apps/details?id=com.happproxy">Android</a>
+      <a class="btn" href="https://www.happ.su/main">Windows / другое</a>
+    </p>
+    <h3>2. Добавьте подписку</h3>
+    <p><a class="btn" style="width:100%;text-align:center;padding:12px" href="happ://add/{{ sub_url }}">➕ Добавить в Happ</a></p>
+    <p class="muted">Если кнопка не сработала — скопируйте ссылку и в Happ нажмите «+» → «Вставить из буфера»:</p>
+    <pre id="sub">{{ sub_url }}</pre>
+    <button class="ghost" onclick="navigator.clipboard.writeText(document.getElementById('sub').innerText);this.innerText='Скопировано ✓'">Скопировать ссылку</button>
+    <h3>3. Подключитесь</h3>
+    <p class="muted" style="margin-bottom:0">Выберите сервер и нажмите кнопку подключения. Если на мобильном интернете
+      работают только «белые списки» — выбирайте серверы с пометкой <b>«Белые списки»</b>. Если какой-то сервер не
+      работает, попробуйте вариант <b>XHTTP</b> или другую страну.</p>
+  </div>
+
+  {% if settings.support_url %}<p><a href="{{ settings.support_url }}">Поддержка</a></p>{% endif %}
+</main>
+{% endblock %}

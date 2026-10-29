@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h3 style="margin-top:0">Добавить сервер</h3>
+  <form method="post" action="/admin/nodes" class="row">
+    <label>Флаг<input name="flag" value="🇳🇱" style="width:70px"></label>
+    <label>Название<input name="name" placeholder="Нидерланды" required></label>
+    <label>IP или домен<input name="address" placeholder="203.0.113.10" required></label>
+    <label>Порт Vision<input name="port" type="number" value="443" style="width:90px"></label>
+    <label>Порт XHTTP (0 = выкл)<input name="xhttp_port" type="number" value="8443" style="width:90px"></label>
+    <label>SNI (маскировка)<input name="sni" value="www.microsoft.com"></label>
+    <label>Мост через
+      <select name="upstream_id">
+        <option value="0">— нет, прямой выход —</option>
+        {% for n in nodes if not n.is_bridge %}<option value="{{ n.id }}">{{ n.flag }} {{ n.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <button>Добавить</button>
+  </form>
+  <p class="muted" style="margin-bottom:0">
+    После добавления откроется страница с командой установки: выполните её на чистом VPS (Ubuntu/Debian).
+    «Мост» = российский сервер в облаке из белого списка, который пересылает трафик на зарубежный сервер.
+  </p>
+</div>
+
+<div class="card scroll">
+  <table>
+    <tr><th>#</th><th>Сервер</th><th>Адрес</th><th>Тип</th><th>SNI</th><th>Статус</th><th>Последний контакт</th></tr>
+    {% for n in nodes %}
+    <tr>
+      <td>{{ n.sort }}</td>
+      <td><a href="/admin/nodes/{{ n.id }}">{{ n.flag }} {{ n.name }}</a></td>
+      <td>{{ n.address }}:{{ n.port }}{% if n.xhttp_port %}, {{ n.xhttp_port }}{% endif %}</td>
+      <td>{% if n.is_bridge %}мост → {{ n.upstream.flag }} {{ n.upstream.name }}{% else %}выход{% endif %}</td>
+      <td>{{ n.sni }}</td>
+      <td>{% if not n.enabled %}<span class="muted">выключен</span>{% elif n.is_online(now) %}<span class="ok">онлайн</span>{% else %}<span class="bad">офлайн</span>{% endif %}</td>
+      <td class="muted">{{ n.last_seen.strftime("%d.%m %H:%M:%S") if n.last_seen else "никогда" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="muted">Серверов пока нет</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

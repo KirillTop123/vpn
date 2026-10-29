@@ -1,0 +1,33 @@
+services:
+  panel:
+    build: { context: ., dockerfile: panel/Dockerfile }
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////data/vpn.db
+    volumes: [ "data:/data" ]
+    restart: unless-stopped
+
+  bot:
+    build: { context: ., dockerfile: panel/Dockerfile }
+    command: ["python", "-m", "app.bot"]
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////data/vpn.db
+    volumes: [ "data:/data" ]
+    depends_on: [ panel ]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8
+    ports: [ "80:80", "443:443" ]
+    environment:
+      PANEL_DOMAIN: ${PANEL_DOMAIN}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [ panel ]
+    restart: unless-stopped
+
+volumes:
+  data:
+  caddy:

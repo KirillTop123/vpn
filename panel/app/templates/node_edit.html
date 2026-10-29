@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/admin/nodes">← Все серверы</a></p>
+
+<div class="card">
+  <h3 style="margin-top:0">{{ node.flag }} {{ node.name }}
+    {% if node.is_online(now) %}<span class="ok">· онлайн</span>{% else %}<span class="bad">· офлайн</span>{% endif %}</h3>
+  <p>Выполните на сервере (Ubuntu 22.04+/Debian 12+, root):</p>
+  <pre>{{ install }}</pre>
+  <p class="muted">Скрипт поставит Xray, включит BBR и агент, который каждые 30 секунд забирает конфиг с панели и
+    отправляет статистику трафика. Сервер появится у клиентов автоматически, как только выйдет на связь.</p>
+</div>
+
+<div class="card">
+  <form method="post" action="/admin/nodes/{{ node.id }}" class="row">
+    <label>Флаг<input name="flag" value="{{ node.flag }}" style="width:70px"></label>
+    <label>Название<input name="name" value="{{ node.name }}" required></label>
+    <label>IP или домен<input name="address" value="{{ node.address }}" required></label>
+    <label>Порт Vision<input name="port" type="number" value="{{ node.port }}" style="width:90px"></label>
+    <label>Порт XHTTP<input name="xhttp_port" type="number" value="{{ node.xhttp_port }}" style="width:90px"></label>
+    <label>SNI<input name="sni" value="{{ node.sni }}"></label>
+    <label>Порядок<input name="sort" type="number" value="{{ node.sort }}" style="width:80px"></label>
+    <label>Мост через
+      <select name="upstream_id">
+        <option value="0">— нет, прямой выход —</option>
+        {% for n in others %}<option value="{{ n.id }}" {% if n.id == node.upstream_id %}selected{% endif %}>{{ n.flag }} {{ n.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Включён<input type="checkbox" name="enabled" {% if node.enabled %}checked{% endif %}></label>
+    <button>Сохранить</button>
+  </form>
+</div>
+
+<div class="card">
+  <p class="muted" style="margin-top:0">Reality public key: <code>{{ node.public_key }}</code> · short id: <code>{{ node.short_id }}</code> · XHTTP path: <code>{{ node.xhttp_path }}</code></p>
+  <form method="post" action="/admin/nodes/{{ node.id }}/delete" onsubmit="return confirm('Удалить сервер?')">
+    <button class="danger">Удалить сервер</button>
+  </form>
+</div>
+{% endblock %}

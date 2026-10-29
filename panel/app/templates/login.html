@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block body %}
+<main style="max-width:360px;margin-top:12vh">
+  <div class="card">
+    <h2 style="margin-top:0">{{ settings.brand_name }}</h2>
+    {% if error %}<p class="bad">{{ error }}</p>{% endif %}
+    <form method="post" action="/admin/login" class="row">
+      <input type="password" name="password" placeholder="Пароль администратора" autofocus required style="flex:1">
+      <button>Войти</button>
+    </form>
+  </div>
+</main>
+{% endblock %}
