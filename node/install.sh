@@ -34,7 +34,11 @@ sysctl --system >/dev/null || true
 
 echo "==> Installing node agent"
 mkdir -p /opt/vpn-agent
-curl -fsSL "$PANEL_URL/node/agent.py" -o /opt/vpn-agent/agent.py
+if [[ -n "${AGENT_SRC:-}" && -f "$AGENT_SRC" ]]; then
+  cp "$AGENT_SRC" /opt/vpn-agent/agent.py
+else
+  curl -fsSL "$PANEL_URL/node/agent.py" -o /opt/vpn-agent/agent.py
+fi
 cat >/etc/vpn-agent.env <<EOF
 PANEL_URL=$PANEL_URL
 NODE_TOKEN=$NODE_TOKEN
@@ -67,6 +71,14 @@ chmod +x /etc/cron.weekly/xray-geodata
 if command -v ufw >/dev/null && ufw status | grep -q active; then
   echo "==> Opening ports in ufw"
   ufw allow 443/tcp >/dev/null; ufw allow 8443/tcp >/dev/null
+fi
+# Oracle Cloud Ubuntu images ship iptables rules that reject everything except SSH.
+if iptables -S INPUT 2>/dev/null | grep -q -- "-j REJECT"; then
+  echo "==> Opening ports in iptables"
+  for p in 443 8443; do
+    iptables -C INPUT -p tcp --dport $p -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $p -j ACCEPT
+  done
+  command -v netfilter-persistent >/dev/null && netfilter-persistent save >/dev/null 2>&1 || true
 fi
 
 systemctl daemon-reload

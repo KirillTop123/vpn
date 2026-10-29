@@ -4,6 +4,9 @@ Run: python -m app.bot
 """
 import asyncio
 import logging
+import os
+import sqlite3
+import tempfile
 from datetime import timedelta
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -12,6 +15,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import (
     CallbackQuery,
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     LabeledPrice,
@@ -328,6 +332,30 @@ async def send_reminders(bot: Bot):
         db.commit()
 
 
+# --------------------------------------------------------------------------- daily DB backup to admins
+
+
+async def backup_loop(bot: Bot):
+    """Send the SQLite database to admins once a day, so a lost server never means lost customers."""
+    if not settings.database_url.startswith("sqlite:///") or not settings.admin_tg_ids:
+        return
+    src_path = settings.database_url.removeprefix("sqlite:///")
+    while True:
+        await asyncio.sleep(24 * 3600)
+        try:
+            dst_path = os.path.join(tempfile.gettempdir(), f"backup-{utcnow():%Y%m%d}.db")
+            src, dst = sqlite3.connect(src_path), sqlite3.connect(dst_path)
+            with dst:
+                src.backup(dst)  # consistent snapshot even while panel writes
+            src.close()
+            dst.close()
+            for admin_id in settings.admin_tg_ids:
+                await bot.send_document(admin_id, FSInputFile(dst_path), caption="💾 Ежедневный бэкап базы")
+            os.remove(dst_path)
+        except Exception:
+            log.exception("backup failed")
+
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     if not settings.bot_token:
@@ -337,6 +365,7 @@ async def main():
     dp = Dispatcher()
     dp.include_router(router)
     asyncio.create_task(reminder_loop(bot))
+    asyncio.create_task(backup_loop(bot))
     await dp.start_polling(bot)
 
 

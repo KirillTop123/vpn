@@ -1,4 +1,4 @@
-{$PANEL_DOMAIN} {
+{$PANEL_DOMAIN}:{$PANEL_PORT:443} {
 	encode gzip
 	reverse_proxy panel:8000
 }

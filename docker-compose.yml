@@ -5,6 +5,8 @@ services:
     environment:
       DATABASE_URL: sqlite:////data/vpn.db
     volumes: [ "data:/data" ]
+    # Loopback only: lets a node agent on the same machine reach the panel without TLS.
+    ports: [ "127.0.0.1:8000:8000" ]
     restart: unless-stopped
 
   bot:
@@ -19,9 +21,10 @@ services:
 
   caddy:
     image: caddy:2.8
-    ports: [ "80:80", "443:443" ]
+    ports: [ "80:80", "${PANEL_PORT:-443}:${PANEL_PORT:-443}" ]
     environment:
       PANEL_DOMAIN: ${PANEL_DOMAIN}
+      PANEL_PORT: ${PANEL_PORT:-443}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy:/data
