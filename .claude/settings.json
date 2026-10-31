@@ -1,11 +1,41 @@
 {
   "extraKnownMarketplaces": {
-    "claude-plugins-official": { "source": { "source": "github", "repo": "anthropics/claude-plugins-official" } },
-    "anthropic-agent-skills": { "source": { "source": "github", "repo": "anthropics/skills" } },
-    "knowledge-work-plugins": { "source": { "source": "github", "repo": "anthropics/knowledge-work-plugins" } },
-    "ponytail": { "source": { "source": "github", "repo": "DietrichGebert/ponytail" } },
-    "caveman": { "source": { "source": "github", "repo": "JuliusBrussee/caveman" } },
-    "context-mode": { "source": { "source": "github", "repo": "mksglu/context-mode" } }
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    },
+    "anthropic-agent-skills": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/skills"
+      }
+    },
+    "knowledge-work-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/knowledge-work-plugins"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
+    },
+    "caveman": {
+      "source": {
+        "source": "github",
+        "repo": "JuliusBrussee/caveman"
+      }
+    },
+    "context-mode": {
+      "source": {
+        "source": "github",
+        "repo": "mksglu/context-mode"
+      }
+    }
   },
   "enabledPlugins": {
     "ponytail@ponytail": true,
@@ -23,5 +53,9 @@
     "document-skills@anthropic-agent-skills": true,
     "marketing@knowledge-work-plugins": true,
     "productivity@knowledge-work-plugins": true
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$HOME/.claude/ponytail-statusline.sh\" 2>/dev/null"
   }
 }
