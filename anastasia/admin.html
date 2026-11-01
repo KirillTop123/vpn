@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Админ-панель — Анастасия Губайдулина</title>
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<style>
+:root{color-scheme:dark;--bg:#120e0b;--panel:#1c1611;--panel2:#241c16;--line:rgba(236,220,196,.13);--text:#f3ebdf;--muted:#a99a87;--gold:#e2bd80;--gold2:#c3924f;--ok:#4fd18b;--bad:#ff6b6b;--warn:#f0b54a;
+  --f:"Montserrat",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:400 15px/1.5 var(--f);min-height:100vh}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:8px}
+.app{display:grid;grid-template-columns:250px 1fr;min-height:100vh}
+aside{background:var(--panel);border-right:1px solid var(--line);padding:18px 12px;position:sticky;top:0;height:100vh;overflow:auto}
+.logo{font:italic 500 22px Georgia,serif;color:var(--gold);padding:6px 10px 16px}
+.logo small{display:block;font:500 11px var(--f);letter-spacing:.2em;text-transform:uppercase;color:var(--muted);font-style:normal;margin-top:4px}
+.tabs{display:grid;gap:2px}
+.tabs button{display:flex;align-items:center;gap:10px;text-align:left;padding:11px 12px;border-radius:10px;color:var(--muted);min-height:44px}
+.tabs button:hover{background:rgba(255,255,255,.04);color:var(--text)}
+.tabs button.on{background:linear-gradient(90deg,rgba(226,189,128,.18),rgba(226,189,128,.04));color:var(--text)}
+.tabs .n{margin-left:auto;font-size:12px;color:var(--muted)}
+main{padding:22px clamp(16px,3vw,36px) 120px;max-width:1100px;width:100%}
+.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:22px}
+.top h1{font:500 30px Georgia,serif;margin-right:auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);font-weight:600;font-size:13px;white-space:nowrap}
+.btn:hover{border-color:rgba(226,189,128,.4)}
+.btn.gold{background:linear-gradient(180deg,#e9c58a,#c3924f);color:#1b130c;border:0}
+.btn.red{color:var(--bad)}
+.btn.sm{min-height:34px;padding:0 10px;font-size:12px;border-radius:9px}
+.btn:disabled{opacity:.45;cursor:default}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}
+.card h2{font:500 22px Georgia,serif;margin-bottom:12px}
+.card p.d{color:var(--muted);font-size:13px;margin:-6px 0 12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.f{display:grid;gap:5px}
+.f>span{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+input[type=text],input[type=tel],input[type=url],input[type=number],input[type=date],input[type=password],select,textarea{width:100%;min-height:42px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:#14100c}
+textarea{min-height:90px;resize:vertical}
+select option{background:#1c1611}
+.chk{display:flex;align-items:center;gap:8px;min-height:42px;cursor:pointer}
+.chk input{width:20px;height:20px;accent-color:var(--gold)}
+.item{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:start;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--panel2);margin-bottom:10px}
+.item .thumb{width:84px;height:84px;border-radius:10px;object-fit:cover;background:#0e0b08;display:grid;place-items:center;color:var(--muted);font-size:11px;text-align:center;overflow:hidden;cursor:pointer;border:1px dashed var(--line)}
+.item .thumb img{width:100%;height:100%;object-fit:cover}
+.item .acts{display:flex;flex-direction:column;gap:6px}
+.item.hidden{opacity:.55}
+.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.gi{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel2)}
+.gi img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block}
+.gi .b{padding:8px;display:grid;gap:6px}
+.gi .b .row{display:flex;gap:4px;flex-wrap:wrap}
+.tags{display:flex;gap:4px;flex-wrap:wrap}
+.tags label{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);cursor:pointer;user-select:none}
+.tags input{display:none}
+.tags input:checked+span{color:var(--gold)}
+.tags label:has(input:checked){border-color:var(--gold);background:rgba(226,189,128,.1)}
+.stat{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.stat div{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+.stat b{display:block;font:500 34px Georgia,serif;color:var(--gold)}
+.stat span{font-size:12px;color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 10px;border-radius:999px;border:1px solid var(--line)}
+.pill.ok{color:var(--ok);border-color:rgba(79,209,139,.4)}
+.pill.warn{color:var(--warn);border-color:rgba(240,181,74,.4)}
+.pill.bad{color:var(--bad);border-color:rgba(255,107,107,.4)}
+.log{font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;background:#0e0b08;border-radius:12px;padding:12px;max-height:260px;overflow:auto;white-space:pre-wrap;color:var(--muted)}
+.bar{position:fixed;left:250px;right:0;bottom:0;z-index:20;display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:12px clamp(16px,3vw,36px);padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));background:rgba(18,14,11,.92);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid var(--line)}
+.bar .st{margin-right:auto;font-size:13px;color:var(--muted)}
+.price3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:50;padding:12px 18px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);opacity:0;pointer-events:none;transition:opacity .25s;font-size:14px}
+.toast.on{opacity:1}
+.help{font-size:13px;color:var(--muted);line-height:1.6}
+.help ol{padding-left:18px}
+.help code{background:#0e0b08;padding:1px 6px;border-radius:6px;color:var(--gold)}
+.menu-btn{display:none}
+@media (max-width:820px){
+  .app{grid-template-columns:1fr}
+  aside{position:fixed;inset:0 25% 0 0;z-index:40;transform:translateX(-105%);transition:transform .25s;height:100%}
+  aside.on{transform:none;box-shadow:20px 0 60px rgba(0,0,0,.6)}
+  .menu-btn{display:inline-flex}
+  .bar{left:0;flex-wrap:wrap;gap:8px}
+  .bar .st{flex-basis:100%}
+  .bar .btn{flex:1}
+  .grid2,.grid3,.stat{grid-template-columns:1fr 1fr}
+  .item{grid-template-columns:1fr}
+  .item .acts{flex-direction:row;flex-wrap:wrap}
+}
+@media (max-width:480px){.grid2,.grid3{grid-template-columns:1fr}.price3{grid-template-columns:1fr 1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside id="side">
+    <div class="logo">Губайдулина<small>админ-панель сайта</small></div>
+    <nav class="tabs" id="tabs"></nav>
+  </aside>
+  <main id="main"></main>
+</div>
+<div class="bar">
+  <span class="st" id="st">Загрузка…</span>
+  <a class="btn" href="index.html?preview=1" target="_blank" rel="noopener">Предпросмотр</a>
+  <button class="btn gold" id="pub">Опубликовать</button>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<input type="file" id="file" accept="image/*" hidden>
+
+<script>
+"use strict";
+/* Админ-панель статического сайта.
+   Данные сайта лежат в data.js. Правки копятся в черновике (localStorage) и публикуются
+   коммитом в репозиторий через GitHub API — сервер не нужен. Доступ = персональный токен GitHub. */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+const LS = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (_) { return false; } }, del(k) { try { localStorage.removeItem(k); } catch (_) {} } };
+const DEF_GH = { owner: "KirillTop123", repo: "vpn", branch: "gh-pages", path: "anastasia" };
+let GH = Object.assign({}, DEF_GH, LS.get("gub_gh", {}));
+let TOKEN = LS.get("gub_token", "") || sessionStorage.getItem("gub_token") || "";
+let D = null, BASE = "";          // черновик и опубликованная версия (строкой) для сравнения
+const PENDING = new Map();         // путь картинки -> dataURL, ещё не загружено в репозиторий
+let TAB = location.hash.slice(1) || "dash";
+
+function toast(t, bad) { const e = $("#toast"); e.textContent = t; e.style.color = bad ? "var(--bad)" : ""; e.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove("on"), 2800); }
+const dirty = () => JSON.stringify(D) !== BASE || PENDING.size > 0;
+function save() {
+  D.meta = D.meta || {};
+  if (!LS.set("gub_draft", D)) toast("Черновик не сохранился в браузере — опубликуйте изменения", true);
+  status();
+}
+function status() {
+  const d = dirty();
+  $("#st").innerHTML = d ? `<span class="pill warn">● Есть неопубликованные изменения${PENDING.size ? " · фото: " + PENDING.size : ""}</span>` : `<span class="pill ok">● Всё опубликовано</span>`;
+}
+addEventListener("beforeunload", (e) => { if (PENDING.size) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---------- загрузка опубликованных данных ----------
+function loadPublished() {
+  return new Promise((res) => {
+    const s = document.createElement("script");
+    s.src = "data.js?v=" + Date.now();
+    s.onload = () => res(window.SITE_DATA || null);
+    s.onerror = () => res(null);
+    document.head.appendChild(s);
+  });
+}
+(async function init() {
+  const pub = await loadPublished();
+  BASE = JSON.stringify(pub || {});
+  const draft = LS.get("gub_draft", null);
+  D = draft || clone(pub || {});
+  if (draft && JSON.stringify(draft) !== BASE) toast("Открыт сохранённый черновик");
+  ["services", "categories", "works", "workCats", "studio", "reviews", "reviewStats", "faq"].forEach((k) => (D[k] = D[k] || []));
+  D.profile = D.profile || {}; D.announcement = D.announcement || { on: false, text: "", link: "" }; D.seo = D.seo || {};
+  renderTabs(); render(); status();
+})();
+
+// ---------- навигация ----------
+const TABS = [
+  ["dash", "Обзор"], ["profile", "Профиль и контакты"], ["announce", "Объявление"], ["services", "Услуги и цены"],
+  ["works", "Портфолио"], ["studio", "Студия"], ["reviews", "Отзывы"], ["faq", "Вопросы и ответы"],
+  ["seo", "SEO"], ["backup", "Резервная копия"], ["publish", "Публикация и доступ"],
+];
+function renderTabs() {
+  const n = { services: D.services.length, works: D.works.length, reviews: D.reviews.length, faq: D.faq.length, studio: D.studio.length };
+  $("#tabs").innerHTML = TABS.map(([id, t]) => `<button class="${id === TAB ? "on" : ""}" data-tab="${id}">${t}${n[id] != null ? `<span class="n">${n[id]}</span>` : ""}</button>`).join("");
+}
+$("#tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (!b) return; TAB = b.dataset.tab; location.hash = TAB; $("#side").classList.remove("on"); renderTabs(); render(); scrollTo(0, 0); });
+function hdr(title, extra = "") { return `<div class="top"><button class="btn menu-btn" data-act="menu">☰</button><h1>${title}</h1>${extra}</div>`; }
+
+// ---------- универсальные поля: data-k="profile.phone" ----------
+const getK = (k) => k.split(".").reduce((o, p) => (o == null ? o : o[p]), D);
+function setK(k, v) { const ps = k.split("."); const last = ps.pop(); const o = ps.reduce((o, p) => (o[p] = o[p] || {}), D); o[last] = v; }
+function fld(k, label, type = "text", ph = "") {
+  const v = getK(k);
+  if (type === "textarea") return `<label class="f"><span>${label}</span><textarea data-k="${k}" placeholder="${esc(ph)}">${esc(v)}</textarea></label>`;
+  if (type === "check") return `<label class="chk"><input type="checkbox" data-k="${k}" ${v ? "checked" : ""}>${label}</label>`;
+  return `<label class="f"><span>${label}</span><input type="${type}" data-k="${k}" value="${esc(v)}" placeholder="${esc(ph)}"></label>`;
+}
+$("#main").addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.dataset.k) { setK(t.dataset.k, t.type === "checkbox" ? t.checked : t.type === "number" ? Number(t.value) : t.value); save(); }
+  if (t.dataset.lk) { const [arr, i, key] = t.dataset.lk.split("|"); const o = D[arr][+i]; setList(o, key, t); save(); }
+});
+$("#main").addEventListener("change", (e) => { if (e.target.dataset.k || e.target.dataset.lk) { renderTabs(); if (e.target.dataset.rerender) render(); } });
+function setList(o, key, t) {
+  if (key === "price.s" || key === "price.m" || key === "price.l") { if (typeof o.price !== "object") o.price = { s: 0, m: 0, l: 0 }; o.price[key.slice(6)] = Number(t.value) || 0; return; }
+  if (key === "price") { o.price = Number(t.value) || 0; return; }
+  if (key === "rating") { o.rating = Number(t.value) || 5; return; }
+  if (key === "cats") { o.cats = $$(`[data-lk^="works|${D.works.indexOf(o)}|cats"]`).filter((x) => x.checked).map((x) => x.value); return; }
+  o[key] = t.type === "checkbox" ? t.checked : t.value;
+}
+const L = (arr, i, key, label, type = "text", ph = "") => {
+  const o = D[arr][i]; const v = key.includes(".") ? (o.price || {})[key.split(".")[1]] : o[key];
+  if (type === "textarea") return `<label class="f"><span>${label}</span><textarea data-lk="${arr}|${i}|${key}" placeholder="${esc(ph)}">${esc(v)}</textarea></label>`;
+  if (type === "check") return `<label class="chk"><input type="checkbox" data-lk="${arr}|${i}|${key}" ${v ? "checked" : ""}>${label}</label>`;
+  return `<label class="f"><span>${label}</span><input type="${type}" data-lk="${arr}|${i}|${key}" value="${esc(v)}" placeholder="${esc(ph)}"></label>`;
+};
+function moveBtns(arr, i) {
+  return `<button class="btn sm" data-act="up" data-arr="${arr}" data-i="${i}" ${i === 0 ? "disabled" : ""} aria-label="Выше">↑</button><button class="btn sm" data-act="down" data-arr="${arr}" data-i="${i}" ${i === D[arr].length - 1 ? "disabled" : ""} aria-label="Ниже">↓</button><button class="btn sm red" data-act="del" data-arr="${arr}" data-i="${i}">Удалить</button>`;
+}
+const imgSrc = (p) => PENDING.get(p) || p;
+const thumb = (arr, i, p) => `<div class="thumb" data-act="img" data-arr="${arr}" data-i="${i}" title="Нажмите, чтобы заменить фото">${p ? `<img src="${esc(imgSrc(p))}" alt="">` : "+ фото"}</div>`;
+
+// ---------- экраны ----------
+function render() {
+  const R = { dash, profile, announce, services, works, studio, reviews, faq, seo, backup, publish };
+  $("#main").innerHTML = (R[TAB] || dash)();
+}
+function dash() {
+  const hid = D.services.filter((s) => s.hidden).length;
+  const noImg = D.services.filter((s) => s.featured && !s.img).length;
+  const checks = [
+    [!!TOKEN, "Подключён доступ к GitHub для публикации", "publish"],
+    [!!D.profile.phone, "Указан телефон", "profile"],
+    [!!D.profile.vk, "Добавлена ссылка на ВКонтакте", "profile"],
+    [D.reviews.length >= 6, "На сайте 6+ отзывов (сейчас " + D.reviews.length + ")", "reviews"],
+    [D.works.length >= 20, "В портфолио 20+ работ (сейчас " + D.works.length + ")", "works"],
+    [noImg === 0, "У всех услуг из блока «Специализация» есть фото", "services"],
+  ];
+  return hdr("Обзор") + `<div class="stat"><div><b>${D.services.length}</b><span>услуг${hid ? ` · скрыто ${hid}` : ""}</span></div><div><b>${D.works.length}</b><span>фото в портфолио</span></div><div><b>${D.reviews.length}</b><span>отзывов на сайте</span></div><div><b>${esc(D.profile.rating || "—")}</b><span>рейтинг</span></div></div>
+<div class="card"><h2>Что сделать</h2>${checks.map(([ok, t, tab]) => `<div class="chk" style="justify-content:space-between"><span>${ok ? "✅" : "⚪️"} ${t}</span>${ok ? "" : `<button class="btn sm" data-tab-go="${tab}">Открыть</button>`}</div>`).join("")}</div>
+<div class="card"><h2>Как это работает</h2><div class="help"><ol>
+<li>Меняйте тексты, цены, фото и отзывы в разделах слева — всё сохраняется в черновик в этом браузере.</li>
+<li>«Предпросмотр» показывает сайт с черновиком, посетители его не видят. Новые фото появятся в предпросмотре после публикации.</li>
+<li>«Опубликовать» отправляет изменения на сайт. Обновление появляется через 1–2 минуты.</li></ol></div></div>`;
+}
+document.addEventListener("click", (e) => { const g = e.target.closest("[data-tab-go]"); if (g) { TAB = g.dataset.tabGo; location.hash = TAB; renderTabs(); render(); } });
+
+function profile() {
+  return hdr("Профиль и контакты") + `<div class="card"><h2>Мастер</h2><div class="grid2">${fld("profile.name", "Имя и фамилия")}${fld("profile.short", "Короткое имя в шапке")}${fld("profile.title", "Специальность")}${fld("profile.city", "Город")}${fld("profile.brand", "Косметика")}</div></div>
+<div class="card"><h2>Контакты</h2><div class="grid2">${fld("profile.phone", "Телефон", "tel")}${fld("profile.hours", "Время работы")}${fld("profile.address", "Адрес")}${fld("profile.addressNote", "Как найти (подъезд, этаж)")}${fld("profile.whatsapp", "WhatsApp — номер цифрами", "text", "79174047428")}${fld("profile.telegram", "Telegram — ссылка", "url", "https://t.me/ник")}${fld("profile.vk", "ВКонтакте — ссылка", "url", "https://vk.com/…")}${fld("profile.booking", "Ссылка онлайн-записи", "url")}${fld("profile.reviewsUrl", "Ссылка на отзывы", "url")}${fld("profile.route", "Ссылка «Маршрут»", "url")}</div></div>
+<div class="card"><h2>Рейтинг</h2><p class="d">Обновляйте по данным Яндекс Карт.</p><div class="grid3">${fld("profile.rating", "Рейтинг", "text", "4,8")}${fld("profile.ratingCount", "Оценок", "number")}${fld("profile.reviewsCount", "Отзывов", "number")}${fld("profile.award", "Награда")}</div>
+<h2 style="margin-top:16px;font-size:18px">Показатели отзывов</h2>${D.reviewStats.map((k, i) => `<div class="grid3" style="margin-bottom:8px">${L("reviewStats", i, "name", "Название")}${L("reviewStats", i, "value", "Значение")}<div class="f"><span>&nbsp;</span><div style="display:flex;gap:6px">${moveBtns("reviewStats", i)}</div></div></div>`).join("")}<button class="btn sm" data-act="add" data-arr="reviewStats">+ Показатель</button></div>
+<div class="card"><h2>Главный экран и «О мастере»</h2>${fld("profile.heroText", "Текст на первом экране", "textarea")}
+<div class="item" style="margin-top:12px">${`<div class="thumb" data-act="heroimg">${D.profile.heroImg ? `<img src="${esc(imgSrc(D.profile.heroImg))}" alt="">` : "+ фото"}</div>`}<div class="grid2">${fld("profile.heroCaption", "Подпись к фото на первом экране")}</div><div></div></div>
+${fld("profile.aboutTitle", "Заголовок «О мастере»")}<div style="margin-top:12px">${(D.profile.about || []).map((t, i) => `<label class="f" style="margin-bottom:8px"><span>Абзац ${i + 1}</span><textarea data-k="profile.about.${i}">${esc(t)}</textarea></label>`).join("")}</div>
+<button class="btn sm" data-act="addAbout">+ Абзац</button> ${(D.profile.about || []).length ? '<button class="btn sm red" data-act="delAbout">Удалить последний абзац</button>' : ""}</div>`;
+}
+function announce() {
+  return hdr("Объявление") + `<div class="card"><h2>Полоса над шапкой сайта</h2><p class="d">Для акций, свободных окон, отпуска.</p>${fld("announcement.on", "Показывать объявление", "check")}<div class="grid2" style="margin-top:8px">${fld("announcement.text", "Текст", "text", "Скидка 10% на уход в ноябре")}${fld("announcement.link", "Ссылка при нажатии (необязательно)", "url")}</div></div>`;
+}
+function services() {
+  const cats = D.categories;
+  const opt = (sel) => cats.map((c) => `<option value="${esc(c.id)}" ${c.id === sel ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+  const items = cats.map((c) => {
+    const ids = D.services.map((s, i) => [s, i]).filter(([s]) => s.cat === c.id);
+    return `<h2 style="font:500 22px Georgia,serif;margin:22px 0 10px">${esc(c.name)} <span style="color:var(--muted);font-size:14px">${ids.length}</span></h2>` + ids.map(([s, i]) => {
+      const byLen = typeof s.price === "object";
+      return `<div class="item ${s.hidden ? "hidden" : ""}">${thumb("services", i, s.img)}<div style="display:grid;gap:10px">
+<div class="grid2">${L("services", i, "name", "Название")}<label class="f"><span>Категория</span><select data-lk="services|${i}|cat" data-rerender="1">${opt(s.cat)}</select></label></div>
+${L("services", i, "desc", "Описание", "textarea")}
+<label class="chk"><input type="checkbox" data-act="bylen" data-i="${i}" ${byLen ? "checked" : ""}>Цена зависит от длины волос</label>
+${byLen ? `<div class="price3">${L("services", i, "price.s", "Короткие, ₽", "number")}${L("services", i, "price.m", "Средние, ₽", "number")}${L("services", i, "price.l", "Длинные, ₽", "number")}</div>` : `<div class="grid2">${L("services", i, "price", "Цена, ₽", "number")}</div>`}
+<div class="grid2">${L("services", i, "tag", "Короткая подпись (для блока «Специализация»)")}<div>${L("services", i, "featured", "Показывать в «Специализации» на главной", "check")}${L("services", i, "hidden", "Скрыть с сайта", "check")}</div></div>
+</div><div class="acts">${moveBtns("services", i)}</div></div>`;
+    }).join("") + `<button class="btn sm" data-act="addSvc" data-cat="${esc(c.id)}">+ Услуга в «${esc(c.name)}»</button>`;
+  }).join("");
+  return hdr("Услуги и цены") + `<div class="card"><h2>Категории</h2>${cats.map((c, i) => `<div class="grid2" style="margin-bottom:8px">${L("categories", i, "name", "Название категории")}<div class="f"><span>&nbsp;</span><div style="display:flex;gap:6px">${moveBtns("categories", i)}</div></div></div>`).join("")}<button class="btn sm" data-act="addCat">+ Категория</button></div><div class="card">${items || "Добавьте категорию"}</div>`;
+}
+function works() {
+  return hdr("Портфолио", `<button class="btn gold" data-act="addWork">+ Добавить фото</button>`) + `<div class="card"><h2>Фильтры портфолио</h2>${D.workCats.map((c, i) => `<div class="grid2" style="margin-bottom:8px">${L("workCats", i, "name", "Название фильтра")}<div class="f"><span>&nbsp;</span><div style="display:flex;gap:6px">${moveBtns("workCats", i)}</div></div></div>`).join("")}<button class="btn sm" data-act="addWcat">+ Фильтр</button></div>
+<div class="gal">${D.works.map((w, i) => `<div class="gi"><img src="${esc(imgSrc(w.img))}" alt="" data-act="img" data-arr="works" data-i="${i}" style="cursor:pointer" title="Заменить фото"><div class="b">
+<input type="text" data-lk="works|${i}|alt" value="${esc(w.alt)}" placeholder="Описание фото">
+<input type="text" data-lk="works|${i}|caption" value="${esc(w.caption)}" placeholder="Подпись на фото">
+<div class="tags">${D.workCats.map((c) => `<label><input type="checkbox" data-lk="works|${i}|cats" value="${esc(c.id)}" ${(w.cats || []).includes(c.id) ? "checked" : ""}><span>${esc(c.name)}</span></label>`).join("")}</div>
+<label class="chk" style="min-height:30px;font-size:12px"><input type="checkbox" data-lk="works|${i}|featured" ${w.featured ? "checked" : ""}>на главной</label>
+<div class="row">${moveBtns("works", i)}</div></div></div>`).join("")}</div>`;
+}
+function studio() {
+  return hdr("Студия", `<button class="btn gold" data-act="addStudio">+ Добавить фото</button>`) + `<div class="card"><p class="d" style="margin:0">Первое фото показывается крупно.</p></div><div class="gal">${D.studio.map((s, i) => `<div class="gi"><img src="${esc(imgSrc(s.img))}" alt="" data-act="img" data-arr="studio" data-i="${i}" style="cursor:pointer"><div class="b"><input type="text" data-lk="studio|${i}|caption" value="${esc(s.caption)}" placeholder="Подпись"><div class="row">${moveBtns("studio", i)}</div></div></div>`).join("")}</div>`;
+}
+function reviews() {
+  return hdr("Отзывы", `<button class="btn gold" data-act="addRev">+ Отзыв</button>`) + `<div class="card"><p class="d" style="margin:0">Переносите отзывы с Яндекс Карт. Имя лучше писать как «Ольга И.».</p></div>` + D.reviews.map((r, i) => `<div class="item"><div></div><div style="display:grid;gap:10px"><div class="grid3">${L("reviews", i, "name", "Имя")}${L("reviews", i, "date", "Дата", "date")}<label class="f"><span>Оценка</span><select data-lk="reviews|${i}|rating">${[5, 4, 3, 2, 1].map((n) => `<option ${n === r.rating ? "selected" : ""}>${n}</option>`).join("")}</select></label></div>${L("reviews", i, "text", "Текст отзыва", "textarea")}${L("reviews", i, "source", "Источник")}</div><div class="acts">${moveBtns("reviews", i)}</div></div>`).join("");
+}
+function faq() {
+  return hdr("Вопросы и ответы", `<button class="btn gold" data-act="addFaq">+ Вопрос</button>`) + D.faq.map((f, i) => `<div class="item"><div></div><div style="display:grid;gap:10px">${L("faq", i, "q", "Вопрос")}${L("faq", i, "a", "Ответ", "textarea")}</div><div class="acts">${moveBtns("faq", i)}</div></div>`).join("");
+}
+function seo() {
+  return hdr("SEO") + `<div class="card"><h2>Поисковики и соцсети</h2><p class="d">Заголовки страниц прописаны в HTML; здесь — данные для разметки и ссылок.</p>${fld("seo.title", "Заголовок сайта")}<div style="margin-top:10px">${fld("seo.description", "Описание (до 160 символов)", "textarea")}</div>
+<p class="d" style="margin-top:10px">Длина описания: ${(D.seo.description || "").length} символов</p></div>`;
+}
+function backup() {
+  return hdr("Резервная копия") + `<div class="card"><h2>Скачать / загрузить данные</h2><p class="d">Копия всех текстов, цен и ссылок на фото в одном файле.</p><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" data-act="export">Скачать копию (.json)</button><button class="btn" data-act="import">Загрузить копию</button><button class="btn red" data-act="reset">Отменить все неопубликованные правки</button></div></div>`;
+}
+function publish() {
+  return hdr("Публикация и доступ") + `<div class="card"><h2>Доступ к GitHub</h2><p class="d">Сайт хранится в репозитории GitHub. Для публикации нужен персональный токен с правом записи только в этот репозиторий.</p>
+<div class="grid2"><label class="f"><span>Владелец</span><input type="text" id="gh-owner" value="${esc(GH.owner)}"></label><label class="f"><span>Репозиторий</span><input type="text" id="gh-repo" value="${esc(GH.repo)}"></label><label class="f"><span>Ветка</span><input type="text" id="gh-branch" value="${esc(GH.branch)}"></label><label class="f"><span>Папка сайта</span><input type="text" id="gh-path" value="${esc(GH.path)}"></label></div>
+<label class="f" style="margin-top:12px"><span>Токен GitHub</span><input type="password" id="gh-token" value="${esc(TOKEN)}" placeholder="github_pat_…" autocomplete="off"></label>
+<label class="chk"><input type="checkbox" id="gh-remember" ${LS.get("gub_token", "") ? "checked" : ""}>Запомнить на этом устройстве</label>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px"><button class="btn gold" data-act="ghsave">Сохранить и проверить</button><button class="btn red" data-act="ghout">Выйти (стереть токен)</button></div>
+<div id="ghst" style="margin-top:12px">${TOKEN ? '<span class="pill">Токен указан</span>' : '<span class="pill bad">Токен не указан — публикация недоступна</span>'}</div></div>
+<div class="card"><h2>Как получить токен (один раз, 2 минуты)</h2><div class="help"><ol>
+<li>Откройте <code>github.com/settings/personal-access-tokens/new</code> (войдите в аккаунт владельца репозитория).</li>
+<li>Token name — «сайт», Expiration — 1 год.</li>
+<li>Repository access → <b>Only select repositories</b> → выберите <code>${esc(GH.repo)}</code>.</li>
+<li>Permissions → Repository permissions → <b>Contents: Read and write</b>.</li>
+<li>Нажмите Generate token, скопируйте и вставьте выше.</li></ol>
+<p style="margin-top:8px">Не передавайте токен другим людям. Если потеряли телефон — удалите токен на той же странице GitHub.</p></div></div>
+<div class="card"><h2>Журнал</h2><div class="log" id="log">${esc(LS.get("gub_log", "Публикаций с этого устройства ещё не было."))}</div></div>`;
+}
+
+// ---------- действия ----------
+let imgTarget = null;
+$("#main").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const a = b.dataset.act, arr = b.dataset.arr, i = +b.dataset.i;
+  if (a === "menu") return $("#side").classList.toggle("on");
+  if (a === "up" || a === "down") { const j = a === "up" ? i - 1 : i + 1; [D[arr][i], D[arr][j]] = [D[arr][j], D[arr][i]]; }
+  else if (a === "del") {
+    const name = (D[arr][i] && (D[arr][i].name || D[arr][i].q || D[arr][i].alt || "элемент")) || "элемент";
+    if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Точно удалить?"; setTimeout(() => { b.dataset.sure = ""; b.textContent = "Удалить"; }, 3000); return; }
+    if (arr === "categories" && D.services.some((s) => s.cat === D.categories[i].id)) return toast("Сначала перенесите услуги из этой категории", true);
+    D[arr].splice(i, 1); toast("Удалено: " + name);
+  }
+  else if (a === "add" && arr === "reviewStats") D.reviewStats.push({ name: "", value: "" });
+  else if (a === "addSvc") D.services.push({ id: uid("s"), cat: b.dataset.cat, name: "Новая услуга", desc: "", price: 0, img: "", featured: false });
+  else if (a === "addCat") D.categories.push({ id: uid("c"), name: "Новая категория" });
+  else if (a === "addWcat") D.workCats.push({ id: uid("f"), name: "Новый фильтр" });
+  else if (a === "addRev") D.reviews.unshift({ id: uid("r"), name: "", date: new Date().toISOString().slice(0, 10), rating: 5, text: "", source: "Яндекс Карты" });
+  else if (a === "addFaq") D.faq.push({ q: "", a: "" });
+  else if (a === "addAbout") (D.profile.about = D.profile.about || []).push("");
+  else if (a === "delAbout") D.profile.about.pop();
+  else if (a === "bylen") { const s = D.services[i]; s.price = b.checked ? { s: +s.price || 0, m: +s.price || 0, l: +s.price || 0 } : +(s.price.m || 0); }
+  else if (a === "img" || a === "addWork" || a === "addStudio" || a === "heroimg") { imgTarget = { a, arr, i }; $("#file").value = ""; $("#file").click(); return; }
+  else if (a === "export") { const bl = new Blob([JSON.stringify(D, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(bl); const l = document.createElement("a"); l.href = u; l.download = "sait-gubaydulina-" + new Date().toISOString().slice(0, 10) + ".json"; l.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); return; }
+  else if (a === "import") { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json,application/json"; inp.onchange = async () => { try { const d = JSON.parse(await inp.files[0].text()); if (!d.profile || !d.services) throw 0; D = d; save(); renderTabs(); render(); toast("Копия загружена в черновик"); } catch (_) { toast("Это не файл копии сайта", true); } }; inp.click(); return; }
+  else if (a === "reset") { if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Нажмите ещё раз для отмены правок"; return; } D = JSON.parse(BASE); PENDING.clear(); LS.del("gub_draft"); renderTabs(); render(); status(); return toast("Правки отменены"); }
+  else if (a === "ghsave") return ghSave();
+  else if (a === "ghout") { TOKEN = ""; LS.del("gub_token"); sessionStorage.removeItem("gub_token"); render(); return toast("Токен удалён с устройства"); }
+  else return;
+  save(); renderTabs(); render();
+});
+
+// ---------- фото: сжатие в браузере до 1600 px WebP ----------
+$("#file").addEventListener("change", async () => {
+  const f = $("#file").files[0]; if (!f || !imgTarget) return;
+  try {
+    const url = await compress(f);
+    const path = "img/u-" + Date.now().toString(36) + ".webp";
+    PENDING.set(path, url);
+    const { a, arr, i } = imgTarget;
+    if (a === "addWork") D.works.unshift({ id: uid("w"), img: path, cats: [], caption: "", alt: "", featured: false });
+    else if (a === "addStudio") D.studio.push({ img: path, caption: "" });
+    else if (a === "heroimg") D.profile.heroImg = path;
+    else D[arr][i].img = path;
+    save(); renderTabs(); render(); toast("Фото добавлено — не забудьте опубликовать");
+  } catch (_) { toast("Не получилось прочитать фото", true); }
+});
+function compress(file) {
+  return new Promise((res, rej) => {
+    const im = new Image(); const u = URL.createObjectURL(file);
+    im.onload = () => {
+      const k = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight));
+      const c = document.createElement("canvas"); c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(u);
+      let d = c.toDataURL("image/webp", 0.84);
+      if (!d.startsWith("data:image/webp")) d = c.toDataURL("image/jpeg", 0.86); // старый Safari без WebP-кодировщика
+      res(d);
+    };
+    im.onerror = rej; im.src = u;
+  });
+}
+
+// ---------- GitHub ----------
+async function gh(method, path, body) {
+  const r = await fetch(`https://api.github.com/repos/${encodeURIComponent(GH.owner)}/${encodeURIComponent(GH.repo)}${path}`, {
+    method, headers: { Authorization: "Bearer " + TOKEN, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const err = new Error(j.message || "HTTP " + r.status); err.status = r.status; throw err; }
+  return j;
+}
+const ghErr = (e) => e.status === 401 ? "токен неверный или истёк" : e.status === 403 ? "у токена нет права записи (Contents: Read and write)" : e.status === 404 ? "репозиторий, ветка или папка не найдены — проверьте поля" : e.status === 409 ? "конфликт версий — повторите публикацию" : e.message;
+async function ghSave() {
+  GH = { owner: $("#gh-owner").value.trim(), repo: $("#gh-repo").value.trim(), branch: $("#gh-branch").value.trim(), path: $("#gh-path").value.trim().replace(/^\/|\/$/g, "") };
+  TOKEN = $("#gh-token").value.trim();
+  LS.set("gub_gh", GH);
+  if ($("#gh-remember").checked) LS.set("gub_token", TOKEN); else { LS.del("gub_token"); sessionStorage.setItem("gub_token", TOKEN); }
+  const st = $("#ghst"); st.innerHTML = '<span class="pill">Проверяю…</span>';
+  try {
+    const r = await gh("GET", "");
+    await gh("GET", `/contents/${GH.path}/data.js?ref=${encodeURIComponent(GH.branch)}`);
+    const can = r.permissions ? r.permissions.push : true;
+    st.innerHTML = can ? '<span class="pill ok">Подключено — можно публиковать</span>' : '<span class="pill bad">Токен только для чтения</span>';
+  } catch (e) { st.innerHTML = `<span class="pill bad">Ошибка: ${esc(ghErr(e))}</span>`; }
+}
+const b64 = (str) => btoa(unescape(encodeURIComponent(str)));
+function log(t) { const l = $("#log"); const line = new Date().toLocaleString("ru-RU") + "  " + t; if (l) l.textContent = line + "\n" + l.textContent; LS.set("gub_log", (line + "\n" + LS.get("gub_log", "")).slice(0, 4000)); }
+$("#pub").addEventListener("click", async () => {
+  if (!TOKEN) { TAB = "publish"; location.hash = TAB; renderTabs(); render(); return toast("Сначала подключите доступ к GitHub", true); }
+  if (!dirty()) return toast("Нет изменений для публикации");
+  const btn = $("#pub"); btn.disabled = true; btn.textContent = "Публикую…";
+  try {
+    for (const [p, url] of [...PENDING]) {
+      await gh("PUT", `/contents/${GH.path}/${p}`, { message: "Фото для сайта", content: url.split(",")[1], branch: GH.branch });
+      PENDING.delete(p); log("Загружено фото " + p);
+    }
+    D.meta = { updated: new Date().toISOString().slice(0, 10) };
+    const cur = await gh("GET", `/contents/${GH.path}/data.js?ref=${encodeURIComponent(GH.branch)}`);
+    const js = "window.SITE_DATA = " + JSON.stringify(D, null, 2) + ";\n";
+    await gh("PUT", `/contents/${GH.path}/data.js`, { message: "Обновление сайта из админ-панели", content: b64(js), sha: cur.sha, branch: GH.branch });
+    BASE = JSON.stringify(D); LS.set("gub_draft", D); log("Опубликованы данные сайта");
+    toast("Опубликовано! Сайт обновится через 1–2 минуты");
+  } catch (e) { log("Ошибка: " + ghErr(e)); toast("Не опубликовано: " + ghErr(e), true); }
+  btn.disabled = false; btn.textContent = "Опубликовать"; status();
+});
+</script>
+</body>
+</html>

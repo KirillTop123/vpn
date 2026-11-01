@@ -1,0 +1,3 @@
+User-agent: *
+Disallow: /vpn/anastasia/admin.html
+Sitemap: https://kirilltop123.github.io/vpn/anastasia/sitemap.xml
