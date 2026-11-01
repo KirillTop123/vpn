@@ -65,6 +65,7 @@
   loadData(function (D, preview) {
     const P = D.profile || {};
     const booking = P.booking || "#";
+    const BE = D.backend && D.backend.url && D.backend.key ? D.backend : null;
     document.body.insertAdjacentHTML("afterbegin", FILTER_SVG);
 
     // ---------- шапка, меню, низ ----------
@@ -275,7 +276,7 @@ ${faqBlock()}`;
         if (e.target.closest("[data-menu]")) { mm.classList.toggle("on"); document.body.style.overflow = mm.classList.contains("on") ? "hidden" : ""; }
         if (e.target.closest("[data-quiz]") && window.openAssistant) { e.preventDefault(); return window.openAssistant("quiz"); }
         const b = e.target.closest("[data-book]");
-        if (b) { e.preventDefault(); openBooking(b.dataset.book || ""); }
+        if (b) { e.preventDefault(); window.__bookSrc = ""; openBooking(b.dataset.book || ""); }
       });
       const nav = $("#nav"); let y0 = scrollY;
       addEventListener("scroll", () => { const y = scrollY; nav.classList.toggle("hide", y > 300 && y > y0); y0 = y; }, { passive: true });
@@ -287,9 +288,27 @@ ${faqBlock()}`;
     function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("on"), 2600); }
 
     // Запись: собирает заявку и отправляет мастеру в WhatsApp / Telegram, либо ведёт в онлайн-запись Яндекса
+    // Отправка заявки в базу (Supabase): посетитель может только добавить запись, читать — только администратор
+    async function sendSite(btn, s, d) {
+      if ($("#bk-hp").value) return; // ловушка для ботов
+      btn.disabled = true; btn.textContent = "Отправляю…";
+      const l = isObj(s.price) ? $("#bk-l").value : "";
+      const row = { name: $("#bk-n").value.trim().slice(0, 80), phone: $("#bk-p").value.trim().slice(0, 40), service: s.name, service_id: s.id, length: l, wish_date: d || null, wish_time: $("#bk-t").value, comment: $("#bk-c").value.trim().slice(0, 1000) || null, price: priceLabel(s.price, l), source: window.__bookSrc || PAGE };
+      try {
+        const r = await fetch(BE.url.replace(/\/$/, "") + "/rest/v1/bookings", { method: "POST", headers: { apikey: BE.key, Authorization: "Bearer " + BE.key, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(row) });
+        if (!r.ok) throw new Error(r.status);
+        $("#book .sheet").innerHTML = `<button class="x" aria-label="Закрыть" data-close>✕</button><p class="eyebrow">Готово</p><h2 style="margin:12px 0 14px">Заявка <em>отправлена</em></h2><p class="lead">${esc(row.name)}, спасибо! Анастасия свяжется с вами по номеру ${esc(row.phone)}, чтобы подтвердить время.</p><div class="sum glass" style="margin-top:20px"><span>${esc(row.service)}</span><b>${esc(row.price)}</b></div><div class="sendrow"><button class="btn gold wide" data-close>Хорошо</button></div>`;
+        try { localStorage.setItem("gub_booked", JSON.stringify({ name: row.name, phone: row.phone })); } catch (_) {}
+      } catch (_) {
+        btn.disabled = false; btn.textContent = "Отправить заявку";
+        toast("Не удалось отправить — напишите в WhatsApp, кнопка ниже");
+      }
+    }
+
     function openBooking(sid, len, note) {
       let m = $("#book");
       const svcs = (D.services || []).filter((s) => !s.hidden);
+      if (m && !$("#bk-s")) { m.remove(); m = null; } // после «Заявка отправлена» форму собираем заново
       if (!m) {
         document.body.insertAdjacentHTML("beforeend", `<div class="modal" id="book" role="dialog" aria-modal="true" aria-labelledby="bk-h"><div class="sheet">
 <button class="x" aria-label="Закрыть" data-close>✕</button><p class="eyebrow">Запись</p><h2 id="bk-h" style="margin:12px 0 4px">Записаться <em>к мастеру</em></h2>
@@ -299,8 +318,9 @@ ${faqBlock()}`;
 <div class="row2"><div class="fld"><label for="bk-n">Имя</label><input id="bk-n" autocomplete="name" placeholder="Как к вам обращаться"></div><div class="fld"><label for="bk-p">Телефон</label><input id="bk-p" type="tel" autocomplete="tel" placeholder="+7"></div></div>
 <div class="fld"><label for="bk-c">Комментарий</label><textarea id="bk-c" placeholder="Например: хочу светлее на 2 тона"></textarea></div>
 <div class="sum glass"><span>Ориентировочно</span><b id="bk-sum"></b></div>
-<div class="sendrow"><button class="btn gold" data-send="wa">WhatsApp</button><button class="btn ghost" data-send="tg">Telegram</button><a class="btn ghost wide" href="${esc(booking)}" target="_blank" rel="noopener">Онлайн-запись Яндекс</a></div>
-<p class="hint">Заявка откроется в мессенджере уже с текстом — останется нажать «Отправить». Мастер подтвердит время.</p></div></div>`);
+<input id="bk-hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;opacity:0">
+${BE ? `<div class="sendrow"><button class="btn gold wide" data-send="site">Отправить заявку</button></div><p class="hint">Анастасия получит заявку и свяжется с вами для подтверждения времени.</p><p class="hint" style="margin-top:14px">Удобнее в мессенджере?</p>` : ""}<div class="sendrow"><button class="btn ${BE ? "ghost" : "gold"}" data-send="wa">WhatsApp</button><button class="btn ghost" data-send="tg">Telegram</button>${BE ? "" : `<a class="btn ghost wide" href="${esc(booking)}" target="_blank" rel="noopener">Онлайн-запись Яндекс</a>`}</div>
+${BE ? "" : '<p class="hint">Заявка откроется в мессенджере уже с текстом — останется нажать «Отправить». Мастер подтвердит время.</p>'}</div></div>`);
         m = $("#book");
         const upd = () => {
           const s = svcs.find((x) => x.id === $("#bk-s").value) || {};
@@ -315,6 +335,7 @@ ${faqBlock()}`;
           if (!$("#bk-n").value.trim() || !$("#bk-p").value.trim()) { toast("Укажите имя и телефон"); return; }
           const d = $("#bk-d").value;
           const txt = `Здравствуйте, Анастасия! Хочу записаться.\nУслуга: ${s.name}${isObj(s.price) ? ` (${LEN[$("#bk-l").value]} волосы)` : ""}\nЖелаемая дата: ${d ? dateRu(d) : "любая"}, ${$("#bk-t").value.toLowerCase()}\nИмя: ${$("#bk-n").value.trim()}\nТелефон: ${$("#bk-p").value.trim()}${$("#bk-c").value.trim() ? "\nКомментарий: " + $("#bk-c").value.trim() : ""}`;
+          if (b.dataset.send === "site") return sendSite(b, s, d);
           if (b.dataset.send === "wa") window.open("https://wa.me/" + String(P.whatsapp).replace(/\D/g, "") + "?text=" + encodeURIComponent(txt), "_blank", "noopener");
           else {
             // Telegram не принимает готовый текст в ссылке на номер: копируем заявку и открываем чат
@@ -327,6 +348,7 @@ ${faqBlock()}`;
         const dt = $("#bk-d"); dt.min = new Date().toISOString().slice(0, 10);
       }
       if (sid) $("#bk-s").value = sid;
+      try { const me = JSON.parse(localStorage.getItem("gub_booked") || "null"); if (me && !$("#bk-n").value) { $("#bk-n").value = me.name; $("#bk-p").value = me.phone; } } catch (_) {}
       if (len) $("#bk-l").value = len;
       if (note) $("#bk-c").value = note;
       m.dispatchEvent(new Event("change"));

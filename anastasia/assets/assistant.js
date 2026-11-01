@@ -83,7 +83,7 @@ ${alt ? `<p class="ai-sub">Также подойдёт: ${esc(alt.name)} — ${p
     const where = () => { say(`<p><b>${esc(P.address)}</b><br>${esc(P.addressNote)}</p><p>${esc(P.hours)}</p><a class="ai-link" href="${esc(P.route)}" target="_blank" rel="noopener">Построить маршрут →</a>`); setChips(MAIN.filter((c) => c[1] !== "where")); };
     const care = () => { say(`<p>Чтобы цвет держался дольше:</p><ul class="ai-dots"><li>первые 2–3 дня после окрашивания не мойте голову;</li><li>шампунь без сульфатов и мягкая вода — меньше вымывания цвета;</li><li>маска для окрашенных волос 1–2 раза в неделю;</li><li>термозащита перед феном и утюжком;</li><li>блонду — фиолетовый шампунь раз в неделю против желтизны.</li></ul><p>Персональный уход Анастасия подберёт после процедуры.</p>`); setChips([["Уход в салоне — цена", "svc:s12"], ["📅 Записаться", "book"], ["Другие вопросы", "menu"]]); };
     const human = () => { say(`<p>Напишите Анастасии напрямую:</p><div class="ai-row">${P.whatsapp ? `<a class="ai-cta" href="https://wa.me/${esc(String(P.whatsapp).replace(/\D/g, ""))}?text=${encodeURIComponent("Здравствуйте, Анастасия! У меня вопрос: ")}" target="_blank" rel="noopener">WhatsApp</a>` : ""}${P.telegram ? `<a class="ai-cta ghost" href="${esc(P.telegram)}" target="_blank" rel="noopener">Telegram</a>` : ""}<a class="ai-cta ghost" href="${S.tel(P.phone)}">Позвонить</a></div>`); setChips(MAIN.filter((c) => c[1] !== "human")); };
-    const book = (sid, note) => { open(false); S.openBooking(sid || "", len || "", note || ""); };
+    const book = (sid, note) => { open(false); window.__bookSrc = "помощник"; S.openBooking(sid || "", len || "", note || ""); };
 
     // распознавание свободного вопроса
     const INT = [

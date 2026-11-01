@@ -30,6 +30,8 @@ window.SITE_DATA = {
     ]
   },
   "assistant": { "on": true, "greeting": "Я помогу подобрать окрашивание, подскажу цену под вашу длину волос и запишу к Анастасии. С чего начнём?" },
+  "admin": { "passHash": "5ca4924f562a2d4187eaf7b43b7c449a22a2da495c245b87588027fd6d17b577" },
+  "backend": { "url": "", "key": "" },
   "announcement": { "on": false, "text": "Свободные окна на этой неделе — запишитесь онлайн", "link": "" },
   "categories": [
     { "id": "color", "name": "Окрашивание" },
