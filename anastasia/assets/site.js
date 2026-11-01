@@ -103,6 +103,8 @@ ${PAGES.map(([id, href, t]) => `<a href="${href}" class="${id === PAGE ? "on" : 
     initUI();
     initReveal();
     jsonLd();
+    window.SITE = { D, openBooking, toast, fmt, priceLabel, isObj, tel, preview };
+    window.dispatchEvent(new Event("site:ready"));
     if (preview) $$('a[href$=".html"], a[href*=".html#"]').forEach((a) => { const [u, h] = a.getAttribute("href").split("#"); a.setAttribute("href", u + "?preview=1" + (h ? "#" + h : "")); });
 
     function head(eyebrow, title, lead) {
@@ -110,7 +112,7 @@ ${PAGES.map(([id, href, t]) => `<a href="${href}" class="${id === PAGE ? "on" : 
 <h1>${title}</h1>${lead ? `<p class="lead">${lead}</p>` : ""}</div></section>`;
     }
     function rating() {
-      return `<div class="badge glass"><span class="star" aria-hidden="true">★</span><b>${esc(P.rating)}</b> ${esc(P.ratingCount)} оценки · ${esc(P.award)}</div>`;
+      return `<div class="badge glass"><span class="star" aria-hidden="true">★</span><b>${esc(P.rating)}</b> на Яндекс Картах · ${esc(P.award)}</div>`;
     }
     function ctaRow() {
       return `<div class="cta"><button class="btn gold" data-book>${ICON.cal}Записаться онлайн</button><a class="btn ghost" href="${tel(P.phone)}">${esc(P.phone)}</a></div>`;
@@ -133,7 +135,7 @@ ${PAGES.map(([id, href, t]) => `<a href="${href}" class="${id === PAGE ? "on" : 
       const st = (D.reviewStats || []).map((k) => `<span>${esc(k.name)} · <b>${esc(k.value)}</b> положительных</span>`).join("");
       return `<p class="eyebrow">Яндекс Карты</p><div class="big" style="margin-top:24px">${esc(P.rating)}</div>
 <div class="stars" aria-label="Рейтинг ${esc(P.rating)} из 5">${ICON.star.repeat(5)}</div>
-<p class="lead" style="margin:0 auto">${esc(P.ratingCount)} оценки и ${esc(P.reviewsCount)} отзыв клиентов</p>
+<p class="lead" style="margin:0 auto">по отзывам клиентов на Яндекс Картах</p>
 <div class="award glass">${ICON.award}Знак «${esc(P.award)}»</div>${st ? `<div class="kpi">${st}</div>` : ""}`;
     }
 
@@ -147,18 +149,26 @@ ${PAGES.map(([id, href, t]) => `<a href="${href}" class="${id === PAGE ? "on" : 
 <div class="ribbon" aria-hidden="true"><div class="track" id="rib">${(D.services || []).filter((s) => s.tag).map((s) => `<span>${esc(s.tag)}</span><i>✦</i>`).join("")}<span>${esc(P.brand)}</span><i>✦</i><span>Укладка</span><i>✦</i><span>Косметическая стрижка</span><i>✦</i></div></div>
 <section class="about" id="about"><div class="wrap grid"><div class="stack rv"><figure class="f1"><img src="img/w-blonde-waves.webp" alt="Тёплый блонд с волнами" loading="lazy"></figure><figure class="f2"><img src="img/w-brown-long.webp" alt="Гладкий каштан" loading="lazy"></figure></div>
 <div class="rv"><p class="eyebrow">О мастере</p><h2 style="margin:18px 0 24px">${esc(P.aboutTitle).replace(/(\S+\s\S+)$/, "<em>$1</em>")}</h2>${(P.about || []).map((t) => `<p class="lead">${esc(t)}</p>`).join("")}
-<div class="facts"><div><b>${esc(P.rating)}</b><span>рейтинг на Яндекс Картах</span></div><div><b>${(D.services || []).filter((s) => !s.hidden).length}</b><span>услуг в прайсе</span></div><div><b>${esc(P.reviewsCount)}</b><span>отзыв клиентов</span></div></div></div></div></section>
+<div class="facts"><div><b>${esc(P.rating)}</b><span>рейтинг на Яндекс Картах</span></div><div><b>AF</b><span>косметика ${esc(P.brand)}</span></div><div><b>9</b><span>этаж светлой студии в центре</span></div></div></div></div></section>
 <section style="padding-top:0"><div class="wrap rv"><p class="eyebrow">Шкала уровней тона</p><h2 style="margin-top:18px">От <em>эспрессо</em> до шампани</h2>
 <p class="lead" style="margin-top:18px">Колористы говорят на языке уровней: 1 — чёрный, 10 — самый светлый блонд. Любой переход между ними — задача формулы, а не удачи.</p>
 <div class="levels" aria-label="Шкала уровней тона от 1 до 10">${["#1b1512", "#2a1e17", "#3b2a1f", "#4f3726", "#674a32", "#82603f", "#a07c53", "#bf9d6f", "#d9be92", "#eedcbc"].map((c, i) => `<div style="background:${c}"><span>${i + 1}</span></div>`).join("")}</div></div></section>
 <section style="padding-top:0"><div class="wrap"><div class="spec-head rv"><div><p class="eyebrow">Специализация</p><h2 style="margin-top:18px">Что я делаю <em>лучше всего</em></h2></div><a class="btn ghost" href="uslugi.html">Все услуги и цены</a></div>
 <div class="specs">${specCards(feat)}</div></div></section>
+<section style="padding-top:0"><div class="wrap"><div class="pick glass rv"><div><p class="eyebrow">Подбор за 30 секунд</p><h2 style="margin:16px 0 14px">Не знаете, <em>что выбрать?</em></h2><p class="lead">Ответьте на три вопроса — помощник предложит технику и посчитает цену под вашу длину волос.</p></div>
+<div><div class="opts">${["Освежить цвет", "Стать блондинкой", "Airtouch", "Пряди у лица", "Закрасить корни", "Восстановить волосы"].map((t) => `<button data-quiz>${t}</button>`).join("")}</div><button class="btn gold" data-quiz style="margin-top:18px">Подобрать окрашивание</button></div></div></div></section>
+<section style="padding-top:0"><div class="wrap"><p class="eyebrow rv">Визит</p><h2 class="rv" style="margin-top:18px">Как проходит <em>окрашивание</em></h2><ol class="steps">
+<li class="rv"><b>Знакомство</b><span>Обсуждаем желаемый результат, смотрим фото-референсы.</span></li>
+<li class="rv"><b>Диагностика</b><span>Исходный тон, история окрашиваний, состояние волос.</span></li>
+<li class="rv"><b>Цвет</b><span>Подбор техники и формулы, окрашивание на ${esc(P.brand)}.</span></li>
+<li class="rv"><b>Уход и укладка</b><span>Восстановление полотна, блеск и форма.</span></li>
+<li class="rv"><b>Советы домой</b><span>Как сохранить цвет и когда приходить на обновление.</span></li></ol></div></section>
 <section style="padding-top:0"><div class="wrap"><div class="spec-head rv"><div><p class="eyebrow">Портфолио</p><h2 style="margin-top:18px">Свежие <em>работы</em></h2></div><a class="btn ghost" href="raboty.html">Все работы</a></div>
 <div class="masonry" id="gal">${workFigs(fw)}</div></div></section>
 <section class="rating" style="padding-top:0"><div class="wrap rv">${ratingBlock()}${reviewCards((D.reviews || []).slice(0, 2))}<div style="margin-top:30px"><a class="btn ghost" href="otzyvy.html">Все отзывы</a></div></div></section>
 <section style="padding-top:0"><div class="wrap"><p class="eyebrow rv">Разделы</p><div class="tiles">
 <a class="tile rv" href="uslugi.html"><img src="img/w-pearl.webp" alt="" loading="lazy"><div><h3>Услуги и цены</h3><span>калькулятор по длине волос</span></div></a>
-<a class="tile rv" href="raboty.html"><img src="img/w-copper.webp" alt="" loading="lazy"><div><h3>Работы</h3><span>${(D.works || []).length} фото с фильтрами</span></div></a>
+<a class="tile rv" href="raboty.html"><img src="img/w-copper.webp" alt="" loading="lazy"><div><h3>Работы</h3><span>окрашивания, стрижки, уход</span></div></a>
 <a class="tile rv" href="kontakty.html"><img src="img/i-studio.webp" alt="" loading="lazy"><div><h3>Студия и контакты</h3><span>${esc(P.address)}</span></div></a></div></div></section>`;
     }
 
@@ -174,7 +184,7 @@ ${PAGES.map(([id, href, t]) => `<a href="${href}" class="${id === PAGE ? "on" : 
         .join("");
       return `${head("Услуги и цены", "Услуги <em>и цены</em>", "Цена окрашивания зависит от длины и густоты волос. Выберите длину — цены пересчитаются.")}
 <section style="padding-top:0"><div class="wrap"><div class="toolbar"><div class="seg glass" role="group" aria-label="Длина волос"><button aria-pressed="false" data-l="s">Короткие</button><button aria-pressed="true" data-l="m">Средние</button><button aria-pressed="false" data-l="l">Длинные</button></div>
-<span class="hint" style="margin:0">Короткие — до подбородка, средние — до плеч, длинные — ниже лопаток</span></div>${body || '<div class="empty">Услуги ещё не добавлены</div>'}
+<span class="hint" style="margin:0">Короткие — до подбородка, средние — до плеч, длинные — ниже лопаток</span></div><div class="pick glass rv" style="margin-bottom:40px;padding:22px 24px"><div><b style="font:500 26px var(--display)">Не уверены, какая услуга нужна?</b><p class="lead" style="margin-top:6px">Помощник подберёт за 30 секунд и посчитает цену.</p></div><div><button class="btn gold" data-quiz>Подобрать</button></div></div>${body || '<div class="empty">Услуги ещё не добавлены</div>'}
 <p class="pnote">Цены указаны с карточки на Яндекс Картах и в админ-панели. Точную стоимость мастер называет после консультации.</p></div></section>
 ${faqBlock()}`;
     }
@@ -191,7 +201,7 @@ ${faqBlock()}`;
     function otzyvy() {
       return `${head("Отзывы", "Что говорят <em>клиенты</em>", "")}
 <section class="rating" style="padding-top:0"><div class="wrap rv">${ratingBlock()}${reviewCards(D.reviews || [])}
-<div style="margin-top:30px"><a class="btn ghost" href="${esc(P.reviewsUrl)}" target="_blank" rel="noopener">Все ${esc(P.reviewsCount)} отзыв на Яндекс Картах</a></div></div></section>`;
+<div style="margin-top:30px"><a class="btn ghost" href="${esc(P.reviewsUrl)}" target="_blank" rel="noopener">Все отзывы на Яндекс Картах</a></div></div></section>`;
     }
 
     function kontakty() {
@@ -263,6 +273,7 @@ ${faqBlock()}`;
       const mm = $("#mmenu");
       document.addEventListener("click", (e) => {
         if (e.target.closest("[data-menu]")) { mm.classList.toggle("on"); document.body.style.overflow = mm.classList.contains("on") ? "hidden" : ""; }
+        if (e.target.closest("[data-quiz]") && window.openAssistant) { e.preventDefault(); return window.openAssistant("quiz"); }
         const b = e.target.closest("[data-book]");
         if (b) { e.preventDefault(); openBooking(b.dataset.book || ""); }
       });
@@ -276,7 +287,7 @@ ${faqBlock()}`;
     function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("on"), 2600); }
 
     // Запись: собирает заявку и отправляет мастеру в WhatsApp / Telegram, либо ведёт в онлайн-запись Яндекса
-    function openBooking(sid) {
+    function openBooking(sid, len, note) {
       let m = $("#book");
       const svcs = (D.services || []).filter((s) => !s.hidden);
       if (!m) {
@@ -316,6 +327,8 @@ ${faqBlock()}`;
         const dt = $("#bk-d"); dt.min = new Date().toISOString().slice(0, 10);
       }
       if (sid) $("#bk-s").value = sid;
+      if (len) $("#bk-l").value = len;
+      if (note) $("#bk-c").value = note;
       m.dispatchEvent(new Event("change"));
       m.classList.add("on");
       $("#mmenu").classList.remove("on"); document.body.style.overflow = "";

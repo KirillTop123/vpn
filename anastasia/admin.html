@@ -162,7 +162,7 @@ function loadPublished() {
 
 // ---------- навигация ----------
 const TABS = [
-  ["dash", "Обзор"], ["profile", "Профиль и контакты"], ["announce", "Объявление"], ["services", "Услуги и цены"],
+  ["dash", "Обзор"], ["profile", "Профиль и контакты"], ["announce", "Объявление и помощник"], ["services", "Услуги и цены"],
   ["works", "Портфолио"], ["studio", "Студия"], ["reviews", "Отзывы"], ["faq", "Вопросы и ответы"],
   ["seo", "SEO"], ["backup", "Резервная копия"], ["publish", "Публикация и доступ"],
 ];
@@ -243,7 +243,8 @@ ${fld("profile.aboutTitle", "Заголовок «О мастере»")}<div sty
 <button class="btn sm" data-act="addAbout">+ Абзац</button> ${(D.profile.about || []).length ? '<button class="btn sm red" data-act="delAbout">Удалить последний абзац</button>' : ""}</div>`;
 }
 function announce() {
-  return hdr("Объявление") + `<div class="card"><h2>Полоса над шапкой сайта</h2><p class="d">Для акций, свободных окон, отпуска.</p>${fld("announcement.on", "Показывать объявление", "check")}<div class="grid2" style="margin-top:8px">${fld("announcement.text", "Текст", "text", "Скидка 10% на уход в ноябре")}${fld("announcement.link", "Ссылка при нажатии (необязательно)", "url")}</div></div>`;
+  D.assistant = D.assistant || { on: true, greeting: "" };
+  return hdr("Объявление и помощник") + `<div class="card"><h2>Помощник на сайте</h2><p class="d">Чат в углу сайта: подбор окрашивания, цены по длине, адрес, уход, запись.</p>${fld("assistant.on", "Показывать помощника", "check")}<div style="margin-top:8px">${fld("assistant.greeting", "Приветствие", "textarea")}</div></div>`+`<div class="card"><h2>Полоса над шапкой сайта</h2><p class="d">Для акций, свободных окон, отпуска.</p>${fld("announcement.on", "Показывать объявление", "check")}<div class="grid2" style="margin-top:8px">${fld("announcement.text", "Текст", "text", "Скидка 10% на уход в ноябре")}${fld("announcement.link", "Ссылка при нажатии (необязательно)", "url")}</div></div>`;
 }
 function services() {
   const cats = D.categories;
