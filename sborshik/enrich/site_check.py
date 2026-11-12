@@ -49,34 +49,65 @@ def _decode(response: httpx.Response) -> str:
 
 
 INTERNAL_ERROR = "адрес ведёт во внутреннюю сеть, такие сайты не проверяются"
+DNS_ERROR = "домен сайта не найден"
 
 
-def is_public_host(host: str) -> bool:
-    """Адрес сайта берётся из чужих карточек, поэтому в локальную сеть и на сам компьютер не ходим."""
+def _addresses(host: str) -> list[str]:
+    """IP-адреса хоста (сначала IPv4). Пустой список, если имя не разрешилось."""
+    try:
+        return [str(ipaddress.ip_address(host))]
+    except ValueError:
+        pass
+    try:
+        found = list(dict.fromkeys(info[4][0] for info in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)))
+    except (OSError, ValueError):
+        return []
+    return sorted(found, key=lambda a: ":" in a)
+
+
+def _is_allowed(address: str) -> bool:
     if os.environ.get("SBORSHIK_ALLOW_PRIVATE") == "1":  # только для тестов на локальных макетах
         return True
     try:
-        addresses = [ipaddress.ip_address(host)]
+        return ipaddress.ip_address(address).is_global
     except ValueError:
-        try:
-            addresses = [ipaddress.ip_address(info[4][0]) for info in socket.getaddrinfo(host, None)]
-        except (OSError, ValueError):
-            return True  # имя не разрешилось: запрос сам завершится ошибкой «сайт не отвечает»
-    return all(a.is_global for a in addresses)
+        return False
+
+
+def resolve_public(host: str) -> tuple[str, str]:
+    """Разрешает имя один раз и возвращает (адрес для подключения, ошибка).
+    Адрес сайта берётся из чужих карточек, поэтому в локальную сеть и на сам компьютер не ходим;
+    если имя не разрешилось или хотя бы один адрес внутренний — отказ."""
+    addresses = _addresses(host)
+    if not addresses:
+        return "", DNS_ERROR
+    if not all(_is_allowed(a) for a in addresses):
+        return "", INTERNAL_ERROR
+    return addresses[0], ""
 
 
 def _fetch(client: httpx.Client, url: str) -> tuple[httpx.Response | None, str]:
-    """GET с ручным проходом по перенаправлениям: каждый адрес проверяется отдельно."""
+    """GET с ручным проходом по перенаправлениям. На каждом шаге имя разрешается один раз,
+    проверяется, и подключение идёт именно к проверенному адресу (имя уходит в Host и SNI),
+    поэтому подменить адрес между проверкой и запросом нельзя."""
     try:
         for _hop in range(6):
             parsed = urlparse(url)
-            if parsed.scheme not in ("http", "https") or not parsed.hostname or not is_public_host(parsed.hostname):
+            host = parsed.hostname
+            if parsed.scheme not in ("http", "https") or not host:
                 return None, INTERNAL_ERROR
-            response = client.get(url)
+            address, error = resolve_public(host)
+            if error:
+                return None, error
+            literal = f"[{address}]" if ":" in address else address
+            port = f":{parsed.port}" if parsed.port else ""
+            pinned = parsed._replace(netloc=literal + port).geturl()
+            response = client.get(pinned, headers={"Host": host + port}, extensions={"sni_hostname": host})
             location = response.headers.get("location")
             if response.status_code in (301, 302, 303, 307, 308) and location:
                 url = urljoin(url, location)
                 continue
+            response.logical_url = url  # адрес с именем сайта, а не с IP
             return response, ""
         return None, "слишком много перенаправлений"
     except httpx.ConnectError as exc:
@@ -160,15 +191,18 @@ def check(site: str, timeout: int = 20) -> dict:
         response, error = (None, "")
         if not site.startswith("http://"):
             response, error = _fetch(client, f"https://{netloc}/")
-        if response is not None and response.url.scheme == "https":
+        if response is not None and response.logical_url.startswith("https://"):
             result["site_ssl"] = 1
         if response is None:
             first_error = "нет SSL-сертификата или он недействителен" if error == "ssl" else error
+            if error in (INTERNAL_ERROR, DNS_ERROR):
+                result["site_error"] = error
+                return result
             response, error = _fetch(client, f"http://{netloc}/")
             if response is None:
                 result["site_error"] = first_error or error
                 return result
-            result["site_ssl"] = 1 if response.url.scheme == "https" else 0
+            result["site_ssl"] = 1 if response.logical_url.startswith("https://") else 0
         if response.status_code in (401, 403, 429):
             result.update(site_status="unknown", site_error=f"сайт не пустил проверку (код {response.status_code})")
             return result
@@ -176,7 +210,7 @@ def check(site: str, timeout: int = 20) -> dict:
             result["site_error"] = f"сайт отвечает ошибкой {response.status_code}"
             return result
         page_html = _decode(response)
-        base_url = str(response.url)
+        base_url = response.logical_url
         result["site_status"] = "ok"
         title = TITLE_RE.search(page_html)
         result["title"] = re.sub(r"\s+", " ", html_lib.unescape(title.group(1))).strip() if title else ""

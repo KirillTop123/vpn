@@ -84,10 +84,31 @@ def test_export_import_roundtrip(fresh_db):
 def test_site_check_refuses_internal_addresses(monkeypatch):
     from enrich import site_check
     monkeypatch.delenv("SBORSHIK_ALLOW_PRIVATE")
-    for address in ("http://127.0.0.1:8765", "http://192.168.1.1", "http://169.254.169.254", "http://localhost"):
+    for address in ("http://127.0.0.1:8765", "http://192.168.1.1", "http://169.254.169.254", "http://localhost", "http://[::1]"):
         result = site_check.check(address)
         assert result["site_status"] == "down" and result["site_error"] == site_check.INTERNAL_ERROR, address
-    assert site_check.is_public_host("93.184.216.34")
+    assert site_check.resolve_public("93.184.216.34") == ("93.184.216.34", "")
+    # имя не разрешилось — отказ, а не «пропустить»
+    monkeypatch.setattr(site_check, "_addresses", lambda host: [])
+    assert site_check.check("https://no-such-site.example")["site_error"] == site_check.DNS_ERROR
+    # один из адресов внутренний — отказ
+    monkeypatch.setattr(site_check, "_addresses", lambda host: ["93.184.216.34", "10.0.0.5"])
+    assert site_check.resolve_public("mixed.example") == ("", site_check.INTERNAL_ERROR)
+
+
+def test_site_check_connects_to_the_validated_address(monkeypatch):
+    """Подключение идёт к тому адресу, который прошёл проверку, а имя сайта уходит в Host."""
+    import fake_sites
+    from enrich import site_check
+    server = fake_sites.start()
+    port = server.server_address[1]
+    monkeypatch.setitem(fake_sites.SITES, "shop.example", fake_sites.SITES["127.0.0.4"])
+    monkeypatch.setattr(site_check, "_addresses", lambda host: ["127.0.0.1"] if host == "shop.example" else [])
+    fake_sites.STATE["hits"] = []
+    result = site_check.check(f"http://shop.example:{port}")
+    server.shutdown()
+    assert result["site_status"] == "ok" and result["phones"] == ["78432000006"], result
+    assert ("shop.example", "/") in fake_sites.STATE["hits"]
 
 
 def test_settings_are_validated(fresh_db):
