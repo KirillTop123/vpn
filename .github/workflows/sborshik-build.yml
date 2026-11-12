@@ -1,0 +1,26 @@
+name: "Сборщик баз: сборка .exe"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: sborshik
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller
+      - name: Сборка
+        run: >
+          pyinstaller --noconfirm --clean --onefile --windowed --name SborshikBaz
+          --add-data "ui;ui" --add-data "data;data"
+          --collect-all playwright --collect-submodules uvicorn --collect-submodules webview app.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SborshikBaz
+          path: sborshik/dist/SborshikBaz.exe

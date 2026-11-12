@@ -1,0 +1,73 @@
+{
+  "_comment": "Селекторы источников. Если сайт поменял вёрстку, правьте этот файл (см. README, раздел «Как починить селекторы»). В каждом списке селекторы пробуются по порядку, берётся первый сработавший.",
+  "twogis": {
+    "title": "2ГИС",
+    "base_url": "https://2gis.ru",
+    "search_url": "{base}/{city}/search/{query}/page/{page}",
+    "search_url_nocity": "{base}/search/{query}/page/{page}",
+    "card_url": "{base}/{city}/firm/{id}",
+    "card_url_nocity": "{base}/firm/{id}",
+    "card_link": "a[href*='/firm/']",
+    "card_id_regex": "/firm/(\\d+)",
+    "state_var": "initialState",
+    "captcha_url": ["captcha.2gis", "/captcha"],
+    "captcha_selectors": ["iframe[src*='captcha']", "form[action*='captcha']", "#captcha"],
+    "blocked_text": ["Доступ ограничен", "Подозрительная активность"],
+    "ignore_links": ["2gis", "dgis"],
+    "card": {
+      "ready": ["h1"],
+      "name": ["h1"],
+      "address": ["a[href*='/geo/']", "[data-field='address']"],
+      "district": ["[data-field='district']"],
+      "rubrics": ["a[href*='/rubricId/']", "[data-field='rubric']"],
+      "rating": ["[data-field='rating']"],
+      "reviews": ["a[href*='/tab/reviews']", "[data-field='reviews']"],
+      "hours": ["[data-field='hours']"],
+      "site": ["a[href*='link.2gis']"],
+      "reveal_phone": [],
+      "contacts_scope": "body"
+    }
+  },
+  "yandex_maps": {
+    "title": "Яндекс Карты",
+    "base_url": "https://yandex.ru",
+    "search_url": "{base}/maps/?text={query}",
+    "card_url": "{base}/maps/org/{id}/",
+    "card_link": "a[href*='/maps/org/']",
+    "card_id_regex": "/maps/org/(?:[^/?#]+/)?(\\d{6,})",
+    "list_scroll": ".scroll__container",
+    "list_end": ".add-business-view",
+    "max_scrolls": 60,
+    "captcha_url": ["showcaptcha", "/checkcaptcha"],
+    "captcha_selectors": [".CheckboxCaptcha", ".AdvancedCaptcha", "form[action*='captcha']", "#captcha"],
+    "blocked_text": ["Доступ ограничен", "Подтвердите, что запросы отправляли вы"],
+    "ignore_links": ["yandex", "ya.ru"],
+    "card": {
+      "ready": ["h1.orgpage-header-view__header", "h1"],
+      "name": ["h1.orgpage-header-view__header", ".card-title-view__title", "h1"],
+      "address": [".orgpage-header-view__address", ".business-contacts-view__address-link"],
+      "district": [],
+      "rubrics": [".orgpage-categories-info-view__link", ".business-categories-view__category"],
+      "rating": [".business-rating-badge-view__rating-text", ".business-summary-rating-badge-view__rating"],
+      "reviews": [".business-header-rating-view__text", ".business-rating-amount-view"],
+      "hours": [".business-working-status-view", ".business-working-intervals-view"],
+      "site": ["a.business-urls-view__link", ".business-urls-view__text"],
+      "reveal_phone": [".card-phones-view__more", ".orgpage-phones-view__more"],
+      "phone_text": [".orgpage-phones-view__phone-number", ".card-phones-view__phone-number"],
+      "contacts_scope": ".business-card-view, .orgpage-view, body"
+    }
+  },
+  "yandex_search": {
+    "title": "Поиск Яндекса",
+    "base_url": "https://yandex.ru",
+    "search_url": "{base}/search/?text={query}&p={page0}",
+    "result": "li.serp-item",
+    "result_link": "a.OrganicTitle-Link, h2 a, a.Link_theme_outer",
+    "result_title": ".OrganicTitle-LinkText, h2",
+    "result_snippet": ".OrganicTextContentSpan, .Organic-ContentWrapper, .TextContainer",
+    "max_pages": 5,
+    "captcha_url": ["showcaptcha", "/checkcaptcha"],
+    "captcha_selectors": [".CheckboxCaptcha", ".AdvancedCaptcha", "form[action*='captcha']", "#captcha"],
+    "blocked_text": ["Доступ ограничен", "Подтвердите, что запросы отправляли вы"]
+  }
+}
