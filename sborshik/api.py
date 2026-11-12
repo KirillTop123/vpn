@@ -17,7 +17,7 @@ import db
 import exporter
 import segments
 import variants
-from collector import SOURCE_TITLES, collector, mark_interrupted_jobs
+from collector import SOURCE_TITLES, collector, mark_interrupted_jobs, rechecker
 
 app = FastAPI(title=config.APP_NAME, docs_url=None, redoc_url=None)
 UI_DIR = config.resource_dir() / "ui"
@@ -46,6 +46,7 @@ async def _local_only(request: Request, call_next):
 def _startup() -> None:
     db.connect()
     mark_interrupted_jobs()
+    db.recompute_segments()  # правила поиска проблем могли обновиться вместе с программой
 
 
 @app.exception_handler(Exception)
@@ -124,7 +125,29 @@ def companies(request: Request):
 
 @app.get("/api/companies/{company_id}")
 def company(company_id: int):
-    return {**db.get_company(company_id), "history": db.company_history(company_id)}
+    data = db.get_company(company_id)
+    base = db.get_base(data.get("base_id") or 0)
+    return {**data, "history": db.company_history(company_id), "base_name": base.get("name", ""),
+            "pitch": segments.pitch(data, db.get_settings(), base)}
+
+
+@app.get("/api/bases")
+def bases():
+    return db.list_bases()
+
+
+@app.patch("/api/bases/{base_id}")
+async def base_update(base_id: int, request: Request):
+    body = await request.json()
+    db.update_base(base_id, body.get("name"), body.get("intro"))
+    return db.get_base(base_id)
+
+
+@app.delete("/api/bases/{base_id}")
+def base_delete(base_id: int):
+    if collector.busy():
+        raise RuntimeError("Сначала остановите сбор.")
+    return {"deleted": db.delete_base(base_id)}
 
 
 @app.patch("/api/companies/{company_id}")
@@ -146,9 +169,14 @@ async def companies_delete(request: Request):
     return {"deleted": db.delete_companies([int(i) for i in (await request.json()).get("ids", [])])}
 
 
+@app.post("/api/recheck")
+async def recheck(request: Request):
+    return {"count": rechecker.start(int((await request.json()).get("base_id") or 0))}
+
+
 @app.get("/api/facets")
-def facets():
-    return db.facets()
+def facets(base_id: int = 0):
+    return db.facets(base_id)
 
 
 @app.get("/api/today")

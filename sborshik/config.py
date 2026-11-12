@@ -88,18 +88,23 @@ def config_location(name: str) -> dict:
 
 DEFAULT_SETTINGS = {
     # вежливый режим
-    "delay_min": 3.0,
-    "delay_max": 8.0,
-    "cards_per_hour": 300,
+    "delay_min": 2.0,
+    "delay_max": 5.0,
+    "cards_per_hour": 600,   # на каждый источник
+    "windows_per_source": 2,  # окон браузера на один источник (1–3)
+    "site_threads": 6,        # сколько сайтов компаний проверять одновременно
     "max_pages": 20,
     "page_timeout": 45,
     "browser": "auto",  # auto | chromium | msedge | chrome
     # пороги
     "many_reviews": 50,
+    "few_reviews": 5,
+    "low_rating": 4.0,
     "read_silent_days": 2,
     "no_reply_days": 7,
-    "old_site_years": 3,
     "network_branches": 5,
+    # кто пишет (подставляется в шаблоны)
+    "my_name": "",
     # «не мой клиент»
     "stop_words": [
         "дилер", "официальный дилер", "дилерский центр", "франшиза", "федеральная сеть",

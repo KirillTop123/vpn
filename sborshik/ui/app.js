@@ -11,7 +11,7 @@ const S = {
   view: 'collect', meta: null, settings: null, templates: [],
   collect: { city: '', niche: '', queries: [], districts: [], useDistricts: false, pickedDistricts: [], sources: ['twogis', 'yandex_maps'], enrich: true, findSites: true },
   job: null, logs: [], lastLog: 0, wasBusy: false, notified: '',
-  base: { q: '', status: '', segment: '', city: '', tag: '', flags: {}, sort: 'id', dir: 'desc', page: 0, mode: localStorage.getItem('baseMode') || 'table' },
+  base: { baseId: null, baseName: '', q: '', status: '', segment: '', city: '', tag: '', flags: {}, sort: 'id', dir: 'desc', page: 0, mode: localStorage.getItem('baseMode') || 'table' },
   exp: { format: 'xlsx', fields: null, useFilters: true },
 };
 const PAGE = 50;
@@ -56,7 +56,7 @@ function go(view) {
   main.scrollTop = 0;
   VIEWS[view]();
 }
-$('#nav').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) go(b.dataset.view); });
+$('#nav').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.view === 'base') S.base.baseId = null; go(b.dataset.view); });
 document.addEventListener('click', (e) => {
   const link = e.target.closest('[data-open]');
   if (link) { e.preventDefault(); e.stopPropagation(); openLink(link.dataset.open); }
@@ -191,7 +191,7 @@ function drawJob(full) {
       <div class="num"><b>${j ? `${j.tasks_done}/${j.tasks_total}` : '0'}</b><span>поисков пройдено</span></div>
       <div class="num"><b>${j ? `${j.cards_done}/${j.cards_total}` : '0'}</b><span>карточек открыто</span></div>
       <div class="num"><b>${j ? j.added : 0}</b><span>новых компаний</span></div>
-      <div class="num"><b>${st.per_hour}</b><span>страниц за час</span></div>
+      <div class="num"><b>${st.windows || 0}</b><span>окон браузера${st.sites_left ? ', сайтов в очереди: ' + st.sites_left : ''}</span></div>
     </div>`;
   $$('#progress [data-act]').forEach((b) => { b.onclick = guard(async () => { await api('/api/job/' + b.dataset.act, {}); poll(); }); });
   const log = $('#log');
@@ -236,46 +236,88 @@ async function refreshCounters() {
 function baseFilters() {
   const b = S.base, f = { ...b.flags };
   for (const k of ['q', 'status', 'segment', 'city', 'tag']) if (b[k]) f[k] = b[k];
+  if (b.baseId) f.base_id = b.baseId;
   return f;
 }
 function contactIcons(c) {
   return `${c.phones.length ? `<span class="ic" title="${esc(c.phones.map(phoneFmt).join(', '))}">тел</span>` : ''}${c.telegram ? '<span class="ic tg">TG</span>' : ''}${c.whatsapp ? '<span class="ic wa">WA</span>' : ''}${c.max ? '<span class="ic tg">MAX</span>' : ''}${c.vk ? '<span class="ic">VK</span>' : ''}${c.emails.length ? '<span class="ic">@</span>' : ''}${c.site ? `<span class="ic ${c.site_status === 'down' ? 'bad' : 'web'}" title="${esc(c.site)}">сайт</span>` : ''}${c.booking ? '<span class="ic wa" title="Онлайн-запись">запись</span>' : ''}`;
 }
-VIEWS.base = async function () {
+async function viewBases() {
+  const bases = await api('/api/bases');
+  await refreshCounters();
+  main.innerHTML = `<div class="view"><div class="head"><div><h1>Базы</h1><p>Каждый сбор складывает компании в свою базу: ниша и город.</p></div></div>
+    ${bases.length ? `<div class="folders">
+      ${bases.map((x) => `<div class="folder" data-base="${x.id}" tabindex="0"><div class="folder-tab"></div>
+        <div class="name">${esc(x.name)}</div>
+        <div class="folder-n">${x.total}<span> ${plural(x.total, 'компания', 'компании', 'компаний')}</span></div>
+        <div class="row wrap small muted"><span>не писал: ${x.fresh || 0}</span><span>в диалоге: ${x.warm || 0}</span><span>клиенты: ${x.clients || 0}</span></div></div>`).join('')}
+      ${bases.length > 1 ? `<div class="folder all" data-base="0" tabindex="0"><div class="name">Все компании</div><div class="folder-n">${S.facets ? S.facets.total : ''}</div><div class="small muted">Все базы одним списком</div></div>` : ''}
+    </div>` : '<div class="card empty"><b>Баз пока нет</b>Запустите первый сбор — для него создастся база.<br><br><button class="btn primary" id="to-collect">Перейти к сбору</button></div>'}</div>`;
+  if ($('#to-collect')) $('#to-collect').onclick = () => go('collect');
+  $$('[data-base]').forEach((el) => { el.onclick = () => { const x = bases.find((i) => i.id === +el.dataset.base); openBase(+el.dataset.base, x); }; });
+}
+function openBase(id, base) {
+  Object.assign(S.base, { baseId: id || 0, baseName: base ? base.name : 'Все компании', baseIntro: base ? base.intro : '', q: '', status: '', segment: '', city: '', tag: '', flags: {}, page: 0 });
+  VIEWS.base();
+}
+VIEWS.base = guard(async function () {
   const b = S.base;
-  if (!$('#base-view')) {
-    await refreshCounters();
-    const f = S.facets || { cities: [], segments: [] };
-    main.innerHTML = `<div class="view" id="base-view">
-      <div class="head"><div><h1>База</h1><p id="base-count"></p></div>
-        <div class="seg" id="mode"><button data-mode="table">Таблица</button><button data-mode="cards">Карточки</button></div></div>
+  if (b.baseId === null) return viewBases();
+  if (!$('#base-view') || $('#base-view').dataset.base !== String(b.baseId)) {
+    const f = await api('/api/facets' + (b.baseId ? '?base_id=' + b.baseId : ''));
+    main.innerHTML = `<div class="view" id="base-view" data-base="${b.baseId}">
+      <div class="head"><div><a id="back-bases" class="small">← Все базы</a><h1>${esc(b.baseName)}</h1><p id="base-count"></p></div>
+        <div class="row"><button class="btn sm" id="recheck" title="Заново открыть сайты компаний и найти проблемы">Перепроверить сайты</button>${b.baseId ? '<button class="btn sm" id="base-edit">Настроить базу</button>' : ''}
+        <div class="seg" id="mode"><button data-mode="table">Таблица</button><button data-mode="cards">Карточки</button></div></div></div>
+      <div class="card stack" id="base-form" hidden>
+        <label class="f">Название базы<input type="text" id="base-name" value="${esc(b.baseName)}"></label>
+        <label class="f">Чем вы занимаетесь для этой ниши — подставляется в сообщения после имени<input type="text" id="base-intro" value="${esc(b.baseIntro)}" placeholder="делаю сайты для мастеров натяжных потолков в Уфе"></label>
+        <div class="row between"><button class="btn sm danger ghost" id="base-del">Удалить базу вместе с компаниями</button><button class="btn primary sm" id="base-save">Сохранить</button></div></div>
       <div class="toolbar">
         <input type="search" id="bq" placeholder="Поиск: название, телефон, адрес, сайт" value="${esc(b.q)}">
         <select id="b-status"><option value="">Любой статус</option>${S.meta.statuses.map((s) => `<option value="${s.key}">${esc(s.title)}</option>`).join('')}</select>
-        <select id="b-segment"><option value="">Любой сегмент</option>${f.segments.map((s) => `<option value="${esc(s.name)}">${esc(s.name)} (${s.n})</option>`).join('')}</select>
-        <select id="b-city"><option value="">Все города</option>${f.cities.map((n) => `<option>${esc(n)}</option>`).join('')}</select>
+        <select id="b-tag"><option value="">Любая проблема</option>${f.tags.map((s) => `<option value="${esc(s.name)}">${esc(s.name)} (${s.n})</option>`).join('')}</select>
+        <select id="b-segment"><option value="">Главная проблема: любая</option>${f.segments.map((s) => `<option value="${esc(s.name)}">${esc(s.name)} (${s.n})</option>`).join('')}</select>
+        ${b.baseId ? '' : `<select id="b-city"><option value="">Все города</option>${f.cities.map((n) => `<option>${esc(n)}</option>`).join('')}</select>`}
       </div>
       <div class="chips" style="margin-bottom:14px">${FLAGS.map(([k, t]) => `<span class="chip toggle ${b.flags[k] ? 'on' : ''}" data-flag="${k}" tabindex="0">${t}</span>`).join('')}</div>
       <div class="card table-card" id="base-body"></div></div>`;
-    $('#b-status').value = b.status; $('#b-segment').value = b.segment; $('#b-city').value = b.city;
+    $('#b-status').value = b.status; $('#b-segment').value = b.segment; $('#b-tag').value = b.tag; if ($('#b-city')) $('#b-city').value = b.city;
     let timer;
     $('#bq').oninput = (e) => { clearTimeout(timer); timer = setTimeout(() => { b.q = e.target.value.trim(); b.page = 0; loadBase(); }, 250); };
-    for (const [id, key] of [['#b-status', 'status'], ['#b-segment', 'segment'], ['#b-city', 'city']]) $(id).onchange = (e) => { b[key] = e.target.value; b.page = 0; loadBase(); };
+    for (const [id, key] of [['#b-status', 'status'], ['#b-segment', 'segment'], ['#b-city', 'city'], ['#b-tag', 'tag']]) if ($(id)) $(id).onchange = (e) => { b[key] = e.target.value; b.page = 0; loadBase(); };
     $$('[data-flag]').forEach((el) => { el.onclick = () => { const k = el.dataset.flag; if (b.flags[k]) delete b.flags[k]; else b.flags[k] = 1; el.classList.toggle('on'); b.page = 0; loadBase(); }; });
     $('#mode').onclick = (e) => { const m = e.target.dataset.mode; if (m) { b.mode = m; localStorage.setItem('baseMode', m); loadBase(); } };
+    $('#back-bases').onclick = () => { b.baseId = null; VIEWS.base(); };
+    $('#recheck').onclick = guard(async () => {
+      const r = await api('/api/recheck', { base_id: b.baseId || 0 });
+      toast(r.count ? `Перепроверяю сайты: ${r.count}. Браузер не нужен, результаты появятся в базе сами.` : 'В этой базе нет компаний с сайтами.');
+      const wait = setInterval(async () => { const st = await api('/api/job/status?since=' + S.lastLog); if (!st.recheck_left) { clearInterval(wait); if (r.count) toast('Сайты перепроверены'); if (S.view === 'base' && S.base.baseId !== null) loadBase(); } }, 2000);
+    });
+    if ($('#base-edit')) {
+      $('#base-edit').onclick = () => { $('#base-form').hidden = !$('#base-form').hidden; };
+      $('#base-save').onclick = guard(async () => {
+        const r = await api('/api/bases/' + b.baseId, { name: $('#base-name').value, intro: $('#base-intro').value }, 'PATCH');
+        b.baseName = r.name; b.baseIntro = r.intro; $('h1', main).textContent = r.name; $('#base-form').hidden = true; toast('База сохранена');
+      });
+      $('#base-del').onclick = guard(async () => {
+        if (!confirm(`Удалить базу «${b.baseName}» и все компании в ней?`)) return;
+        await api('/api/bases/' + b.baseId, undefined, 'DELETE'); b.baseId = null; toast('База удалена'); VIEWS.base();
+      });
+    }
   }
   loadBase();
-};
+});
 const loadBase = guard(async () => {
   const b = S.base;
   const params = new URLSearchParams({ ...baseFilters(), sort: b.sort, dir: b.dir, limit: PAGE, offset: b.page * PAGE });
   const data = await api('/api/companies?' + params);
   if (!$('#base-body')) return;
   $$('#mode button').forEach((x) => x.classList.toggle('on', x.dataset.mode === b.mode));
-  $('#base-count').textContent = `${data.total} ${plural(data.total, 'компания', 'компании', 'компаний')}` + (Object.keys(baseFilters()).length ? ' по фильтру' : '');
+  $('#base-count').textContent = `${data.total} ${plural(data.total, 'компания', 'компании', 'компаний')}` + (Object.keys(baseFilters()).filter((k) => k !== 'base_id').length ? ' по фильтру' : '');
   const body = $('#base-body');
   if (!data.items.length) {
-    body.innerHTML = Object.keys(baseFilters()).length
+    body.innerHTML = Object.keys(baseFilters()).filter((k) => k !== 'base_id').length
       ? '<div class="empty"><b>Ничего не нашлось</b>Снимите часть фильтров или измените запрос.</div>'
       : '<div class="empty"><b>База пока пустая</b>Запустите первый сбор — компании появятся здесь.<br><br><button class="btn primary" id="to-collect">Перейти к сбору</button></div>';
     if ($('#to-collect')) $('#to-collect').onclick = () => go('collect');
@@ -298,7 +340,7 @@ const loadBase = guard(async () => {
         <td style="max-width:210px">${contactIcons(c)}</td>
         <td class="muted">${esc(c.district || c.city)}</td>
         <td style="white-space:nowrap">${c.reviews || '—'}${c.rating ? `<span class="muted small"> ★ ${c.rating}</span>` : ''}</td>
-        <td><div class="reason"><b>${esc(c.segment)}</b>${esc(c.segment_reason)}</div></td>
+        <td><div class="reason"><b>${esc(c.segment)}${c.reasons.length > 1 ? `<span class="more">+${c.reasons.length - 1}</span>` : ''}</b>${esc(c.segment_reason)}</div></td>
         <td><span class="pill ${c.status}">${esc(statusTitle(c.status))}</span></td></tr>`).join('')}</tbody></table></div>${pager}`;
     $$('th[data-sort]', body).forEach((th) => { th.onclick = () => { const k = th.dataset.sort; if (!k) return; b.dir = b.sort === k && b.dir === 'desc' ? 'asc' : 'desc'; b.sort = k; loadBase(); }; });
   }
@@ -308,13 +350,14 @@ const loadBase = guard(async () => {
 
 /* ---------- карточка компании ---------- */
 function fillTemplate(body, c) {
-  const map = { 'название': c.name, 'отзывы': c.reviews || 0, 'сайт': (c.site || '').replace(/^https?:\/\//, ''), 'проблема': (c.segment_reason || '').replace(/^./, (ch) => ch.toLowerCase()),
-    'город': c.city, 'рейтинг': c.rating || '', 'район': c.district, 'ниша': c.niche };
-  return body.replace(/\{([а-яё]+)\}/gi, (m, key) => (key.toLowerCase() in map ? map[key.toLowerCase()] : m));
+  const map = { 'название': c.name, 'отзывы': c.reviews || 0, 'сайт': (c.site || '').replace(/^https?:\/\//, ''), 'город': c.city, 'рейтинг': c.rating || '',
+    'район': c.district, 'ниша': c.niche, ...(c.pitch || {}) };
+  return body.replace(/\{([а-яё_]+)\}/gi, (m, key) => (key.toLowerCase() in map ? map[key.toLowerCase()] : m)).replace(/[ \t]{2,}/g, ' ').replace(/ ([.,!?])/g, '$1').trim();
 }
 const openCompany = guard(async (id) => {
   const [c, templates] = await Promise.all([api('/api/companies/' + id), api('/api/templates')]);
   S.templates = templates;
+  const smart = templates.find((t) => t.body.includes('{проблема}') && t.body.includes('{предложение}')) || templates[0];
   const link = (url, text) => `<a data-open="${esc(url)}" href="${esc(url)}">${esc(text || url.replace(/^https?:\/\//, ''))}</a>`;
   const rows = [];
   if (c.phones.length) rows.push(['Телефон', c.phones.map((p) => link('tel:+' + p, phoneFmt(p))).join('<br>')]);
@@ -333,25 +376,26 @@ const openCompany = guard(async (id) => {
   if (cards) rows.push(['Карточки', cards]);
   const yes = (v, t) => `<span class="badge ${v ? 'yes' : 'no'}">${v ? '✓' : '✕'} ${t}</span>`;
   const siteBlock = !c.site ? '' : c.site_status === 'ok'
-    ? `<div class="badges">${yes(c.site_ssl, 'SSL')}${yes(c.site_mobile, 'мобильная версия')}${yes(c.site_form, 'форма заявки')}${yes(c.site_calc, 'калькулятор')}${yes(c.site_booking, 'онлайн-запись')}${yes(c.site_chat, 'чат')}${c.site_year ? `<span class="badge">год в подвале: ${c.site_year}</span>` : ''}</div>`
+    ? `<div class="badges">${yes(c.site_ssl, 'SSL')}${yes(c.site_mobile, 'мобильная версия')}${yes(c.site_form, 'форма заявки')}${yes(c.site_calc, 'калькулятор')}${yes(c.site_booking, 'онлайн-запись')}${yes(c.site_chat, 'чат')}${c.site_look ? `<span class="badge">вид: ${esc(c.site_look)}</span>` : ''}${c.site_pages ? `<span class="badge">разделов: ${c.site_pages}</span>` : ''}${c.site_time ? `<span class="badge">открывается за ${c.site_time} с</span>` : ''}</div>`
     : c.site_status === 'down' ? `<div class="badges"><span class="badge no">✕ сайт не открывается: ${esc(c.site_error)}</span></div>`
     : c.site_status === 'unknown' ? `<div class="badges"><span class="badge">${esc(c.site_error)}</span></div>` : '<p class="muted small">Сайт ещё не проверялся.</p>';
   const d = $('#drawer');
   d.innerHTML = `
-    <div class="row"><div class="grow"><h1>${esc(c.name)}</h1><p class="muted">${esc(c.rubrics.join(', ') || c.niche)}${c.rating ? ` · ★ ${c.rating}` : ''}${c.reviews ? ` · ${c.reviews} ${plural(c.reviews, 'отзыв', 'отзыва', 'отзывов')}` : ''}</p></div>
+    <div class="row"><div class="grow"><h1>${esc(c.name)}</h1><p class="muted">${c.base_name ? esc(c.base_name) + ' · ' : ''}${esc(c.rubrics.join(', ') || c.niche)}${c.rating ? ` · ★ ${c.rating}` : ''}${c.reviews ? ` · ${c.reviews} ${plural(c.reviews, 'отзыв', 'отзыва', 'отзывов')}` : ''}</p></div>
       <button class="btn ghost x" id="close" title="Закрыть">✕</button></div>
-    <div class="why"><b>${esc(c.segment)}</b><br>${esc(c.segment_reason)}${c.reasons.length > 1 ? `<div class="muted small" style="margin-top:6px">${c.reasons.filter((r) => r !== c.segment_reason).map(esc).join('<br>')}</div>` : ''}</div>
-    <div class="sect"><h2>Статус</h2><div class="statuses">${S.meta.statuses.map((s) => `<button data-status="${s.key}" class="${c.status === s.key ? 'on' : ''}">${esc(s.title)}</button>`).join('')}</div></div>
-    <div class="sect"><h2>Контакты</h2><dl class="contacts">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>
-    ${siteBlock ? `<div class="sect"><h2>Проверка сайта</h2>${siteBlock}</div>` : ''}
+    <div class="why"><b>${esc(c.segment)}</b><br>${esc(c.segment_reason)}</div>
     <div class="sect"><h2>Сообщение</h2>
       <div class="row" style="margin-bottom:8px"><select id="tpl"><option value="">${c.message ? 'Готовое сообщение из импорта' : 'Выберите шаблон'}</option>${templates.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></div>
-      <textarea id="msg" rows="5" placeholder="Выберите шаблон или напишите сообщение">${esc(c.message)}</textarea>
+      <textarea id="msg" rows="7" placeholder="Выберите шаблон или напишите сообщение">${esc(c.message || (smart ? fillTemplate(smart.body, c) : ''))}</textarea>
       <div class="row wrap" style="margin-top:8px"><button class="btn primary" id="copy">Скопировать сообщение</button>
         ${c.telegram ? `<button class="btn" data-open="${esc(c.telegram)}">Открыть чат в Telegram</button>` : ''}
         ${c.whatsapp ? `<button class="btn" data-open="${esc(c.whatsapp)}">Открыть чат в WhatsApp</button>` : ''}
         ${c.max ? `<button class="btn" data-open="${esc(c.max)}">Открыть MAX</button>` : ''}</div>
       <p class="muted small" style="margin-top:8px">Сообщения отправляете вы сами: программа только копирует текст и открывает чат.</p></div>
+    <div class="sect"><h2>Статус</h2><div class="statuses">${S.meta.statuses.map((s) => `<button data-status="${s.key}" class="${c.status === s.key ? 'on' : ''}">${esc(s.title)}</button>`).join('')}</div></div>
+    <div class="sect"><h2>Контакты</h2><dl class="contacts">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>
+    ${c.reasons.length > 1 ? `<div class="sect"><h2>Что ещё найдено: ${c.reasons.length - 1}</h2><ul class="problems">${c.reasons.map((r, i) => (r === c.segment_reason ? '' : `<li><b>${esc(c.tags[i] || '')}</b>${esc(r)}</li>`)).join('')}</ul></div>` : ''}
+    ${siteBlock ? `<div class="sect"><h2>Проверка сайта</h2>${siteBlock}</div>` : ''}
     <div class="sect"><h2>Заметки и следующее касание</h2>
       <textarea id="notes" rows="3" placeholder="Что обсуждали, о чём договорились">${esc(c.notes)}</textarea>
       <div class="row" style="margin-top:8px"><label class="f" style="width:190px">Написать повторно<input type="date" id="touch" value="${esc(c.next_touch)}"></label><span class="muted small grow" id="saved"></span></div></div>
@@ -364,7 +408,7 @@ const openCompany = guard(async (id) => {
   $$('[data-status]', d).forEach((b) => { b.onclick = guard(async () => { await api(`/api/companies/${id}/status`, { status: b.dataset.status }); await openCompany(id); refresh(); }); });
   $('#tpl').onchange = (e) => { const t = templates.find((x) => String(x.id) === e.target.value); $('#msg').value = t ? fillTemplate(t.body, c) : c.message; if (t) { c.message = $('#msg').value; save({ message: c.message }); } };
   $('#msg').onchange = (e) => save({ message: e.target.value });
-  $('#copy').onclick = async () => { const text = $('#msg').value.trim(); if (!text) return toast('Сначала выберите шаблон или напишите текст.', 'error'); await copyText(text); toast('Сообщение скопировано'); };
+  $('#copy').onclick = async () => { const text = $('#msg').value.trim(); if (!text) return toast('Сначала выберите шаблон или напишите текст.', 'error'); await copyText(text); save({ message: text }); toast('Сообщение скопировано'); };
   $('#notes').onchange = (e) => save({ notes: e.target.value });
   $('#touch').onchange = async (e) => { await save({ next_touch: e.target.value }); refreshCounters(); };
   $('#del').onclick = guard(async () => { if (!confirm(`Удалить «${c.name}» из базы?`)) return; await api('/api/companies/delete', { ids: [id] }); closeDrawer(); toast('Компания удалена'); refresh(); });
@@ -375,12 +419,16 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawe
 
 /* ---------- воронка ---------- */
 VIEWS.funnel = guard(async () => {
-  const data = await api('/api/companies?hide_nmc=1&sort=status_changed_at&dir=desc&limit=2000');
+  const bases = await api('/api/bases');
+  if (S.funnelBase && !bases.some((x) => x.id === S.funnelBase)) S.funnelBase = 0;
+  const data = await api('/api/companies?hide_nmc=1&sort=status_changed_at&dir=desc&limit=2000' + (S.funnelBase ? '&base_id=' + S.funnelBase : ''));
   const by = {}; data.items.forEach((c) => { (by[c.status] = by[c.status] || []).push(c); });
-  main.innerHTML = `<div class="view"><div class="head"><div><h1>Воронка</h1><p>Перетаскивайте компании между колонками — статус и дата сохранятся.</p></div></div>
+  main.innerHTML = `<div class="view"><div class="head"><div><h1>Воронка</h1><p>Перетаскивайте компании между колонками — статус и дата сохранятся.</p></div>
+      <select id="f-base" style="width:auto"><option value="0">Все базы</option>${bases.map((x) => `<option value="${x.id}" ${S.funnelBase === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
     <div class="board">${S.meta.statuses.map((s) => `<div class="col" data-col="${s.key}"><div class="col-head">${esc(s.title)}<span>${(by[s.key] || []).length}</span></div>
       <div class="col-body">${(by[s.key] || []).slice(0, 150).map((c) => `<div class="kcard" draggable="true" data-id="${c.id}"><b>${esc(c.name)}</b><small>${esc(c.segment)}${c.next_touch ? ' · ' + dateFmt(c.next_touch) : ''}</small></div>`).join('')
         || '<span class="muted small" style="padding:6px">Пусто</span>'}</div></div>`).join('')}</div></div>`;
+  $('#f-base').onchange = (e) => { S.funnelBase = +e.target.value; VIEWS.funnel(); };
   let dragged = null;
   $$('.kcard').forEach((el) => {
     el.onclick = () => openCompany(+el.dataset.id);
@@ -463,14 +511,17 @@ VIEWS.settings = guard(async () => {
   S.settings = s; S.meta = meta;
   const num = (key, label, step) => `<label class="f">${label}<input type="number" data-set="${esc(key)}" value="${esc(s[key])}" step="${esc(step || 1)}" min="0"></label>`;
   main.innerHTML = `<div class="view" style="max-width:1000px"><div class="head"><div><h1>Настройки</h1></div><button class="btn primary" id="save-set">Сохранить настройки</button></div><div class="stack">
-    <div class="card"><h2>Вежливый режим</h2><p class="muted" style="margin:-6px 0 14px">Сбор идёт в одном окне браузера с паузами, как у человека. Чем спокойнее темп, тем реже источники просят капчу.</p>
-      <div class="form-grid">${num('delay_min', 'Пауза между страницами, от (сек)', 0.5)}${num('delay_max', 'Пауза между страницами, до (сек)', 0.5)}${num('cards_per_hour', 'Страниц в час, не больше')}${num('max_pages', 'Страниц выдачи на запрос')}${num('page_timeout', 'Ждать загрузку страницы (сек)')}
+    <div class="card"><h2>О вас</h2><div class="form-grid"><label class="f">Ваше имя — для «Меня зовут …» в сообщениях<input type="text" data-set="my_name" value="${esc(s.my_name)}" placeholder="Кирилл"></label></div>
+      <p class="muted small" style="margin-top:10px">Чем вы занимаетесь для конкретной ниши, задаётся в самой базе: «База → Настроить базу».</p></div>
+    <div class="card"><div class="row between" style="margin-bottom:12px"><h2 style="margin:0">Скорость сбора</h2><div class="seg" id="speed"><button data-speed="3,8,1,300">Осторожно</button><button data-speed="2,5,2,600">Быстро</button><button data-speed="1,2.5,3,1200">Максимум</button></div></div>
+      <p class="muted" style="margin:0 0 14px">Источники собираются одновременно, каждый в своих окнах; сайты компаний проверяются фоном. Чем быстрее темп, тем чаще источник будет просить капчу — её по-прежнему решаете вы.</p>
+      <div class="form-grid">${num('windows_per_source', 'Окон браузера на источник (1–3)')}${num('site_threads', 'Сайтов проверять одновременно')}${num('delay_min', 'Пауза между страницами, от (сек)', 0.5)}${num('delay_max', 'Пауза между страницами, до (сек)', 0.5)}${num('cards_per_hour', 'Страниц в час на источник')}${num('max_pages', 'Страниц выдачи на запрос')}${num('page_timeout', 'Ждать загрузку страницы (сек)')}
         <label class="f">Браузер<select data-set="browser"><option value="auto">Автовыбор</option><option value="chromium">Chromium из Playwright</option><option value="msedge">Microsoft Edge</option><option value="chrome">Google Chrome</option></select></label></div></div>
-    <div class="card"><h2>Пороги</h2><div class="form-grid">${num('many_reviews', '«Много отзывов» — от')}${num('read_silent_days', 'Прочитал и молчит (дней)')}${num('no_reply_days', 'Нет ответа (дней)')}${num('old_site_years', 'Сайт устарел, если году в подвале (лет)')}${num('network_branches', 'Сеть — от скольких филиалов')}</div></div>
+    <div class="card"><h2>Пороги</h2><div class="form-grid">${num('many_reviews', '«Много отзывов» — от')}${num('read_silent_days', 'Прочитал и молчит (дней)')}${num('no_reply_days', 'Нет ответа (дней)')}${num('few_reviews', '«Мало отзывов» — меньше')}${num('low_rating', '«Низкий рейтинг» — ниже', 0.1)}${num('network_branches', 'Сеть — от скольких филиалов')}</div></div>
     <div class="card"><h2>Не мой клиент</h2><p class="muted" style="margin:-6px 0 10px">Компании, в названии или рубриках которых есть эти слова, помечаются и уходят из воронки. По одному слову или фразе в строке.</p>
       <textarea id="stop-words" rows="6">${esc(s.stop_words.join('\n'))}</textarea></div>
     <div class="card"><div class="row between" style="margin-bottom:12px"><h2 style="margin:0">Шаблоны сообщений</h2><button class="btn sm" id="tpl-add">Добавить шаблон</button></div>
-      <p class="muted small" style="margin-bottom:12px">Подстановки: {название}, {отзывы}, {сайт}, {проблема}, {город}, {район}, {рейтинг}, {ниша}.</p>
+      <p class="muted small" style="margin-bottom:12px">Умные подстановки подбираются под компанию: {представление} — кто вы, {зацепка} — похвала отзывам, только если их много, {проблема} — главная проблема своими словами, {предложение} — что предложить, {проблемы} — все проблемы списком. Простые: {название}, {отзывы}, {рейтинг}, {сайт}, {город}, {район}, {ниша}.</p>
       <div class="stack" id="tpls">${templates.map((t) => tplForm(t)).join('')}</div></div>
     <div class="card stack"><h2 style="margin:0">База и резервная копия</h2>
       <div><div class="muted small" style="margin-bottom:6px">Файл базы</div><div class="path">${esc(meta.paths.db)}</div></div>
@@ -487,6 +538,11 @@ VIEWS.settings = guard(async () => {
     $$('[data-set]').forEach((el) => { body[el.dataset.set] = el.type === 'number' ? Number(el.value) : el.value; });
     S.settings = await api('/api/settings', body); toast('Настройки сохранены'); refreshCounters();
   });
+  $('#speed').onclick = (e) => {
+    const v = (e.target.dataset.speed || '').split(','); if (v.length < 4) return;
+    ['delay_min', 'delay_max', 'windows_per_source', 'cards_per_hour'].forEach((k, i) => { $(`[data-set=${k}]`).value = v[i]; });
+    toast('Значения подставлены. Нажмите «Сохранить настройки».');
+  };
   $('#backup').onclick = guard(async () => { const r = await api('/api/backup', {}); $('#backup-result').textContent = 'Копия сохранена: ' + r.path; });
   $('#open-data').onclick = () => openFolder(meta.paths.db);
   $('#move-db').onclick = guard(async () => { const r = await api('/api/settings/data_dir', { path: $('#data-dir').value }); toast('База перенесена: ' + r.db); VIEWS.settings(); });

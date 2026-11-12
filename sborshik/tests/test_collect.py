@@ -68,6 +68,8 @@ def test_full_collection(env):
     assert "zakaz@potolki.example" in main["emails"] and "info@potolki.example" in main["emails"]
     assert (main["site_status"], main["site_form"], main["site_calc"], main["site_chat"], main["site_mobile"],
             main["site_year"], main["site_ssl"]) == ("ok", 1, 1, 1, 1, 2021, 0)
+    assert main["base_id"] and db.get_base(main["base_id"])["name"] == "Натяжные потолки, Казань"
+    assert "нет счётчика" in main["tags"] and "сайт устарел" not in main["tags"]   # год в подвале не делает сайт старым
     assert main["reviews"] == 120 and main["hours"] == "Пн–Пт 09:00–19:00; Сб–Вс выходной"
 
     nebo = by_name["Небо"]                                # сайт найден через поиск по названию и городу
@@ -80,6 +82,7 @@ def test_full_collection(env):
     loft = by_name["Лофт Потолок"]
     assert loft["booking"] == "YClients" and loft["whatsapp"] == "https://wa.me/79172000005"
     assert loft["phones"] == ["78432000005"] and loft["segment"] == "нет сайта"
+    assert "простой сайт" in by_name["Небо"]["tags"]
     assert by_name["Потолок Плюс"]["emails"] == ["plus@potolok.example"]
 
 
@@ -107,3 +110,16 @@ def test_stop_and_resume(env):
     assert db.list_companies()["total"] == 4
     firm_hits = [path for _host, path in fake_sites.STATE["hits"] if "/firm/" in path]
     assert len(firm_hits) == len(set(firm_hits)) == 4      # ни одна карточка не открывалась дважды
+
+
+
+def test_recheck_sites_updates_problems(env):
+    db, _col, port = env
+    import collector as collector_module
+    cid, _ = db.upsert_company({"name": "Небо", "niche": "потолки", "city": "Казань", "site": f"http://127.0.0.3:{port}"})
+    assert collector_module.rechecker.start(db.get_company(cid)["base_id"]) == 1
+    assert wait_for(lambda: collector_module.rechecker.left == 0, 20)
+    company = db.get_company(cid)
+    assert company["site_status"] == "ok" and company["site_look"] == "простой" and company["site_year"] == 2026
+    assert {"простой сайт", "нет калькулятора", "нет счётчика", "телефон не кликается"} <= set(company["tags"])
+    assert "сайт устарел" not in company["tags"] and company["telegram"] == "https://t.me/nebo_kzn"

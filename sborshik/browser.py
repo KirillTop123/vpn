@@ -17,21 +17,24 @@ class Browser:
     """Одно окно, одна вкладка. Профиль сохраняется между запусками,
     поэтому решённая капча и согласия с cookies не спрашиваются заново."""
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict, profile: str = "browser-profile", slot: int = 0):
         self.settings = settings
+        self.profile = profile  # у каждого окна свой профиль: один профиль нельзя открыть дважды
+        self.slot = slot
         self._pw = None
         self._context = None
         self.page = None
 
     def start(self) -> None:
         self._pw = sync_playwright().start()
-        profile = config.user_dir() / "browser-profile"
+        profile = config.user_dir() / self.profile
         headless = os.environ.get("SBORSHIK_HEADLESS") == "1"
         choice = self.settings.get("browser") or "auto"
         attempts = [choice] if choice != "auto" else ["chromium", "msedge", "chrome"]
         errors = []
         for name in attempts:
-            options: dict = {"headless": headless, "locale": "ru-RU", "viewport": {"width": 1280, "height": 860}}
+            options: dict = {"headless": headless, "locale": "ru-RU", "viewport": {"width": 1180, "height": 760},
+                             "args": [f"--window-position={40 + self.slot * 60},{30 + self.slot * 45}"]}
             if name != "chromium":
                 options["channel"] = name
             elif os.environ.get("SBORSHIK_CHROMIUM"):

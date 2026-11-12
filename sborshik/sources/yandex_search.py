@@ -21,7 +21,7 @@ def search(session, query: str, page_no: int = 1) -> list[dict]:
     cfg = base.source_config(NAME)
     session.open(cfg, base.build_url(cfg, "search_url", query=query, page0=page_no - 1))
     try:
-        session.page.wait_for_selector(cfg["result"], timeout=8000)
+        session.page.wait_for_selector(cfg["result"], timeout=5000)
     except Exception:
         return []
     results = []

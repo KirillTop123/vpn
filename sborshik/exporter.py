@@ -86,15 +86,19 @@ def export(fmt: str, fields: list[str] | None, filters: dict | None) -> dict:
 def export_for_claude(filters: dict | None) -> dict:
     items = db.list_companies(filters or {})["items"]
     skip = ("tags", "enriched", "job_id", "updated_at")
+    settings = db.get_settings()
+    bases = {b["id"]: b for b in db.list_bases()}
     payload = {
         "инструкция": (
             "Это база компаний малого бизнеса. Для каждой компании напиши короткое первое сообщение "
-            "(2–4 предложения, без воды), опираясь на поля segment, segment_reason и reasons. "
+            "(2–4 предложения, без воды), опираясь на поля segment, segment_reason, reasons (все найденные проблемы) "
+            "и заготовка_сообщения. Не хвали отзывы, если их мало. "
             "Верни JSON-массив объектов вида {\"id\": ..., \"message\": \"...\"} — файл в таком виде "
             "можно импортировать обратно в «Сборщик баз», сообщения привяжутся по id."
         ),
         "компании": [
-            {**{k: v for k, v in c.items() if k not in skip}, "status_title": segments.STATUS_NAMES.get(c["status"], c["status"])}
+            {**{k: v for k, v in c.items() if k not in skip}, "status_title": segments.STATUS_NAMES.get(c["status"], c["status"]),
+             "заготовка_сообщения": segments.pitch(c, settings, bases.get(c.get("base_id")))}
             for c in items
         ],
     }

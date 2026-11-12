@@ -37,6 +37,7 @@ def test_dedupe_and_segments(fresh_db):
     assert company["phones"] == ["78432000000", "79172223344"]
     assert set(company["card_urls"]) == {"2gis", "yandex_maps"}
     assert company["segment"] == "нет онлайн-записи" and "много отзывов" in company["tags"]
+    assert db.get_base(company["base_id"])["name"] == "Без ниши, Казань"
 
     e, _ = db.upsert_company({"name": "Автостекло — официальный дилер", "phones": ["+79000000001"]})
     assert db.get_company(e)["not_my_client"] == 1
@@ -118,3 +119,33 @@ def test_settings_are_validated(fresh_db):
     with pytest.raises(ValueError):
         fresh_db.save_settings({"browser": "firefox<script>"})
     assert fresh_db.save_settings({"many_reviews": "70", "delay_min": 4})["many_reviews"] == 70
+
+
+def test_bridge_record_merges_two_companies(fresh_db):
+    db = fresh_db
+    a, _ = db.upsert_company({"name": "Лоск", "phones": ["+79000000020"], "card_urls": {"yandex_maps": "m"}})
+    b, _ = db.upsert_company({"name": "Лоск студия", "site": "losk.example.ru", "card_urls": {"yandex_search": "s"}})
+    assert a != b
+    db.set_status(b, "written")
+    c, created = db.upsert_company({"name": "Лоск", "phones": ["+79000000020"], "site": "losk.example.ru", "card_urls": {"2gis": "g"}})
+    assert (c, created) == (a, False) and db.list_companies()["total"] == 1
+    merged = db.get_company(a)
+    assert set(merged["card_urls"]) == {"yandex_maps", "yandex_search", "2gis"} and merged["status"] == "written"
+
+
+def test_messages_fit_the_company(fresh_db):
+    import segments
+    db = fresh_db
+    db.save_settings({"my_name": "Кирилл"})
+    a, _ = db.upsert_company({"name": "Потолочный дом", "niche": "натяжные потолки", "city": "Уфа", "phones": ["+79000000030"],
+                              "site": "potolochniydom.ru", "card_urls": {"2gis": "u"}, "reviews": 0})
+    db.update_company(a, {"site_status": "down"})
+    company = db.get_company(a)
+    db.update_base(company["base_id"], None, "делаю сайты для мастеров натяжных потолков в Уфе")
+    p = segments.pitch(company, db.get_settings(), db.get_base(company["base_id"]))
+    assert p["представление"] == "Меня зовут Кирилл, делаю сайты для мастеров натяжных потолков в Уфе. "
+    assert p["зацепка"] == "" and "potolochniydom.ru не открывается" in p["проблема"] and "2ГИС" in p["проблема"]
+    b, _ = db.upsert_company({"name": "Небо", "niche": "натяжные потолки", "city": "Уфа", "phones": ["+79000000031"],
+                              "reviews": 140, "rating": 4.9})
+    p = segments.pitch(db.get_company(b), db.get_settings(), {})
+    assert "140 отзывов" in p["зацепка"] and "не нашёл" in p["проблема"]

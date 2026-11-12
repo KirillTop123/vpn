@@ -8,6 +8,7 @@ import os
 import re
 import socket
 import ssl
+import time
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -122,15 +123,13 @@ def _fetch(client: httpx.Client, url: str) -> tuple[httpx.Response | None, str]:
 
 
 def _footer_year(page_html: str) -> int:
+    """Последний год рядом со знаком ©: «© 2007—2026» → 2026. Только для справки, выводов по нему не делаем."""
     this_year = dt.date.today().year
+    text = html_lib.unescape(re.sub(r"<[^>]+>", " ", page_html)).replace("\u00a0", " ")
     years: list[int] = []
-    for regex in (YEAR_RE, YEAR_AFTER_RE):
-        for match in regex.finditer(page_html):
-            years += [int(y) for y in match.groups() if y]
-    if not years:
-        footer = re.search(r"<footer\b.*?</footer>", page_html, re.I | re.S)
-        if footer:
-            years = [int(y) for y in re.findall(r"\b(20\d{2})\b", _text_of(footer.group(0)))]
+    for match in re.finditer(r"©|\(c\)|copyright", text, re.I):
+        around = text[max(0, match.start() - 25):match.end() + 60]
+        years += [int(y) for y in re.findall(r"(?<!\d)(20\d{2})(?!\d)", around)]
     years = [y for y in years if 2000 <= y <= this_year + 1]
     return max(years) if years else 0
 
@@ -173,11 +172,146 @@ def _contact_pages(page_html: str, base_url: str) -> list[str]:
     return pages[:2]
 
 
+STYLE_LINK_RE = re.compile(r"<link\b[^>]*rel\s*=\s*[\"']?stylesheet[^>]*>", re.I)
+INLINE_STYLE_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.I | re.S)
+BUILDERS = {"tilda": "Tilda", "wix.com": "Wix", "wixstatic": "Wix", "webflow": "Webflow", "readymag": "Readymag",
+            "flexbe": "Flexbe", "lpmotor": "LPmotor", "craftum": "Craftum", "taplink": "Taplink", "nethouse": "Nethouse",
+            "ukit": "uKit", "insales": "InSales", "wp-content": "WordPress", "bitrix": "1С-Битрикс", "joomla": "Joomla"}
+FREE_HOSTS = ("tilda.ws", "wixsite.com", "ucoz.ru", "ucoz.net", "narod.ru", "nethouse.ru", "ukit.me", "tb.ru", "taplink.cc",
+              "github.io", "blogspot.com", "jimdo.com", "wordpress.com", "turbo.site", "clients.site")
+FREE_MAIL = ("mail.ru", "gmail.com", "yandex.ru", "ya.ru", "bk.ru", "list.ru", "inbox.ru", "rambler.ru", "icloud.com")
+MOTION_LIBS_RE = re.compile(r"swiper|slick|owl\.carousel|aos\.|wow\.js|gsap|fancybox|lottie|animate\.css|splide", re.I)
+APP_RE = re.compile(r"__NEXT_DATA__|data-reactroot|id=[\"']__nuxt|ng-version|id=[\"']app[\"']|id=[\"']root[\"']", re.I)
+
+
+def _internal_pages(page_html: str, base_url: str) -> int:
+    """Сколько разных внутренних страниц видно в ссылках (без якорей и файлов)."""
+    host = textutil.domain_of(base_url)
+    paths = set()
+    for href in HREF_RE.findall(page_html):
+        url = urljoin(base_url, html_lib.unescape(href.strip()))
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or textutil.domain_of(url) != host:
+            continue
+        path = parsed.path.rstrip("/").lower()
+        if not path or re.search(r"\.(css|js|png|jpe?g|gif|svg|webp|ico|pdf|docx?|xlsx?|zip|xml|woff2?)$", path):
+            continue
+        paths.add(path)
+    return len(paths)
+
+
+def analyze_look(page_html: str, css: str, base_url: str) -> dict:
+    """Оценивает, как сайт сделан: современный, простой (голый текст без оформления) или устаревший.
+    Смотрит на вёрстку и стили, а не на год в подвале."""
+    low = page_html.lower()
+    styles = (css + " " + " ".join(INLINE_STYLE_RE.findall(page_html))).lower()
+    builder = next((name for mark, name in BUILDERS.items() if mark in low), "")
+    old = []
+    if re.search(r"<font\b|<center\b|<marquee\b|\bbgcolor\s*=|<frameset\b|\.swf\b", low):
+        old.append("оформление тегами 2000-х годов")
+    layout_modern = bool(re.search(r"display\s*:\s*(inline-)?(flex|grid)", styles)) or bool(builder)
+    if low.count("<table") >= 3 and not layout_modern:
+        old.append("вёрстка таблицами")
+    if re.search(r"<!doctype[^>]*(html 4|xhtml 1\.0 transitional)", low):
+        old.append("устаревший стандарт разметки")
+    if re.search(r"jquery[-./]1\.\d", low):
+        old.append("библиотеки десятилетней давности")
+    images = len(re.findall(r"<img\b|<picture\b|background(-image)?\s*:\s*url", low + styles))
+    motion = bool(re.search(r"transition\s*:|animation(-name)?\s*:|@keyframes|transform\s*:", styles)) or bool(MOTION_LIBS_RE.search(low))
+    fonts = bool(re.search(r"@font-face|fonts\.googleapis|fonts\.gstatic|typekit|font-display", low + styles))
+    adaptive = bool(VIEWPORT_RE.search(page_html)) or "@media" in styles or bool(builder)
+    words = len(_text_of(page_html).split())
+    pages = _internal_pages(page_html, base_url)
+    plain = []
+    if not motion:
+        plain.append("нет анимаций и эффектов")
+    if not fonts:
+        plain.append("стандартные шрифты")
+    if images < 4:
+        plain.append("почти нет фотографий")
+    if not layout_modern:
+        plain.append("простая вёрстка в одну колонку")
+    if not adaptive:
+        plain.append("не подстраивается под телефон")
+    app_shell = bool(APP_RE.search(page_html)) and words < 80  # сайт рисуется скриптами: по HTML судить нельзя
+    if app_shell:
+        look, why = "", []
+    elif len(old) >= 2 or (old and len(plain) >= 2):
+        look, why = "устаревший", old + plain[:2]
+    elif len(plain) >= 3 and not builder:
+        look, why = "простой", plain
+    else:
+        look, why = "современный", []
+    return {"look": look, "why": why, "pages": pages, "builder": builder, "words": words, "images": images, "adaptive": adaptive}
+
+
+def find_issues(page_html: str, result: dict, contacts: dict, base_url: str, look: dict) -> list[list[str]]:
+    """Всё, что на сайте мешает получать заявки. Возвращает пары [метка, пояснение]."""
+    low = page_html.lower()
+    text = _text_of(page_html)
+    host = textutil.domain_of(base_url)
+    issues: list[list[str]] = []
+
+    def add(tag: str, why: str) -> None:
+        issues.append([tag, why])
+
+    if look["look"] == "устаревший":
+        add("сайт устарел", "Сайт выглядит устаревшим: " + ", ".join(look["why"]))
+    elif look["look"] == "простой":
+        add("простой сайт", "Сайт слишком простой: " + ", ".join(look["why"]))
+    if look["look"] and look["pages"] <= 1:
+        add("одностраничный сайт", "Сайт из одной страницы: нет разделов с услугами, ценами и работами")
+    if look["look"] and look["words"] < 120:
+        add("мало текста", "На главной почти нет текста: непонятно, чем занимается компания, и поиск её не находит")
+    if result["site_time"] >= 3:
+        add("сайт медленный", f"Сайт открывается {result['site_time']:.1f} сек: половина посетителей столько не ждёт")
+    if not result["site_calc"]:
+        add("нет калькулятора", "Нет калькулятора: клиент не может сам прикинуть цену")
+    if not re.search(r"₽|руб\.?|\bцен[аыу]\b|прайс|стоимость", text, re.I):
+        add("нет цен", "На сайте нет цен: клиент уходит сравнивать к тем, у кого они есть")
+    if contacts.get("phones") and "tel:" not in low:
+        add("телефон не кликается", "Телефон на сайте нельзя нажать с мобильного: его приходится набирать вручную")
+    if not contacts.get("phones"):
+        add("нет телефона на сайте", "На главной странице сайта нет телефона")
+    if not any(contacts.get(k) for k in ("telegram", "whatsapp", "max")):
+        add("нет мессенджеров на сайте", "На сайте нет кнопок Telegram и WhatsApp: написать нельзя, только звонить")
+    if not result["site_chat"] and not result["site_form"]:
+        add("нет обратной связи", "На сайте нет ни формы, ни чата: оставить заявку негде")
+    if not re.search(r"mc\.yandex\.ru|metrika|googletagmanager|google-analytics|gtag\(|top\.mail\.ru|liveinternet", low):
+        add("нет счётчика", "Нет Метрики и аналитики: владелец не видит, сколько людей приходит и откуда")
+    if result["site_form"] and not re.search(r"политик[аи] конфиденциальности|персональных данных|privacy", low):
+        add("форма без политики", "Форма собирает телефоны без политики конфиденциальности: это штраф по 152-ФЗ")
+    if not re.search(r"отзыв", text, re.I):
+        add("нет отзывов на сайте", "На сайте нет отзывов клиентов")
+    if not re.search(r"портфолио|наши работы|примеры работ|галере|выполненные|до и после|кейс", text, re.I) and look["images"] < 8:
+        add("нет примеров работ", "На сайте нет примеров работ и фотографий результата")
+    title = result.get("title", "")
+    if len(title) < 10 or title.lower() in ("главная", "home", "index"):
+        add("нет заголовка страницы", "У страницы нет нормального заголовка: в поиске сайт выглядит безымянным")
+    if not re.search(r"<meta[^>]+name=[\"']description[\"'][^>]+content=[\"'][^\"']{20,}", page_html, re.I):
+        add("нет описания для поиска", "Нет описания для поисковиков: Яндекс показывает случайный кусок текста")
+    if not re.search(r"<h1\b", low):
+        add("нет главного заголовка", "На странице нет главного заголовка (h1): поисковикам сложнее понять тему")
+    if not re.search(r"property=[\"']og:(image|title)", low):
+        add("нет превью ссылки", "Ссылка на сайт в мессенджерах приходит без картинки и описания")
+    if not re.search(r"rel=[\"'][^\"']*icon", low):
+        add("нет значка сайта", "У сайта нет значка во вкладке браузера")
+    if base_url.startswith("https://") and re.search(r"(src|href)=[\"']http://[^\"']+\.(js|css|png|jpe?g|gif|webp)", low):
+        add("небезопасное содержимое", "Часть картинок и скриптов грузится по незащищённому адресу: браузер может их блокировать")
+    free = next((dom for dom in FREE_HOSTS if host.endswith("." + dom)), "")
+    if free:
+        add("бесплатный домен", f"Сайт на бесплатном адресе конструктора ({host}): выглядит несолидно")
+    if any(e.split("@")[-1] in FREE_MAIL for e in contacts.get("emails", [])) and not any(e.endswith("@" + host) for e in contacts.get("emails", [])):
+        add("почта на бесплатном домене", "Почта на mail.ru/gmail, а не на домене компании")
+    return issues
+
+
 def check(site: str, timeout: int = 20) -> dict:
-    """Возвращает признаки сайта и найденные на нём контакты."""
+    """Возвращает признаки сайта, найденные на нём контакты и список проблем."""
     result: dict = {
         "site_status": "down", "site_error": "", "site_ssl": 0, "site_calc": 0, "site_form": 0, "site_booking": 0,
-        "site_chat": 0, "site_mobile": 0, "site_year": 0, "site_checked_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "site_chat": 0, "site_mobile": 0, "site_year": 0, "site_time": 0.0, "site_look": "", "site_pages": 0,
+        "site_issues": [], "site_checked_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "phones": [], "emails": [], "title": "",
     }
     host = textutil.domain_of(site)
@@ -189,20 +323,21 @@ def check(site: str, timeout: int = 20) -> dict:
     timeout = min(int(timeout), 25)
     with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": USER_AGENT, "Accept-Language": "ru"}) as client:
         response, error = (None, "")
+        started = time.monotonic()
         if not site.startswith("http://"):
             response, error = _fetch(client, f"https://{netloc}/")
-        if response is not None and response.logical_url.startswith("https://"):
-            result["site_ssl"] = 1
         if response is None:
             first_error = "нет SSL-сертификата или он недействителен" if error == "ssl" else error
             if error in (INTERNAL_ERROR, DNS_ERROR):
                 result["site_error"] = error
                 return result
+            started = time.monotonic()
             response, error = _fetch(client, f"http://{netloc}/")
             if response is None:
                 result["site_error"] = first_error or error
                 return result
-            result["site_ssl"] = 1 if response.logical_url.startswith("https://") else 0
+        result["site_time"] = round(time.monotonic() - started, 1)
+        result["site_ssl"] = 1 if response.logical_url.startswith("https://") else 0
         if response.status_code in (401, 403, 429):
             result.update(site_status="unknown", site_error=f"сайт не пустил проверку (код {response.status_code})")
             return result
@@ -218,7 +353,6 @@ def check(site: str, timeout: int = 20) -> dict:
         has_form = any(FORM_FIELD_RE.search(form) for form in FORM_RE.findall(page_html))
         result["site_form"] = 1 if has_form or FORM_TEXT_RE.search(page_html) else 0
         result["site_chat"] = 1 if CHAT_RE.search(page_html) else 0
-        result["site_mobile"] = 1 if VIEWPORT_RE.search(page_html) else 0
         result["site_year"] = _footer_year(page_html)
         contacts = extract_contacts(page_html, base_url)
         for url in _contact_pages(page_html, base_url):
@@ -230,10 +364,26 @@ def check(site: str, timeout: int = 20) -> dict:
                         contacts[key] = list(dict.fromkeys(contacts.get(key, []) + value))
                     else:
                         contacts.setdefault(key, value)
+        css = ""
+        for tag in STYLE_LINK_RE.findall(page_html)[:4]:  # стили нужны, чтобы оценить оформление
+            href = HREF_RE.search(tag)
+            if not href:
+                continue
+            sheet, _ = _fetch(client, urljoin(base_url, html_lib.unescape(href.group(1))))
+            if sheet is not None and sheet.status_code < 400:
+                css += sheet.text[:400_000] + "\n"
+        look = analyze_look(page_html, css, base_url)
+        result["site_look"], result["site_pages"] = look["look"], look["pages"]
+        result["site_mobile"] = 1 if look["adaptive"] else 0
         result["site_booking"] = 1 if contacts.get("booking") or BOOKING_TEXT_RE.search(page_html) or any(
             dom in page_html for dom in textutil.BOOKING_SERVICES) else 0
         if result["site_booking"] and not contacts.get("booking"):
             service = next((name for dom, name in textutil.BOOKING_SERVICES.items() if dom in page_html), "на сайте")
             contacts["booking"] = service
+        result["site_issues"] = find_issues(page_html, result, contacts, base_url, look)
+        if result["site_ssl"] and not port:
+            plain, _ = _fetch(client, f"http://{netloc}/")
+            if plain is not None and plain.logical_url.startswith("http://") and plain.status_code < 400:
+                result["site_issues"].append(["нет перехода на https", "Старый адрес http:// не переводит на защищённый: часть посетителей видит «Не защищено»"])
         result.update(contacts)
     return result

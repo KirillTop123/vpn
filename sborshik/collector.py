@@ -1,15 +1,16 @@
-"""Движок сбора: очередь задач, вежливый режим, пауза/стоп, капча, возобновление."""
+"""Движок сбора: несколько окон браузера, очередь задач, паузы, капча, возобновление."""
 from __future__ import annotations
 
 import collections
 import json
+import queue
 import random
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import config
 import db
-import variants
 from browser import Browser, BrowserError
 from enrich import site_check
 from sources import base, twogis, yandex_maps, yandex_search
@@ -21,6 +22,114 @@ CAPTCHA_MESSAGE = "Решите капчу в окне браузера и на�
 BLOCK_MESSAGE = "Сайт ограничил доступ. Подождите, проверьте страницу в окне браузера и нажмите «Продолжить»"
 
 
+class Limiter:
+    """Общий для всех окон одного источника счётчик страниц за час."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.opened: collections.deque = collections.deque()
+
+    def reserve(self, limit: int) -> float:
+        """Занимает место в часовом лимите. Возвращает 0 или сколько секунд ждать."""
+        with self.lock:
+            now = time.time()
+            while self.opened and now - self.opened[0] > 3600:
+                self.opened.popleft()
+            if len(self.opened) >= limit:
+                return 3600 - (now - self.opened[0]) + 1
+            self.opened.append(now)
+            return 0.0
+
+    def count(self) -> int:
+        with self.lock:
+            return len(self.opened)
+
+
+class Session:
+    """Одно окно браузера. Источники работают только через него."""
+
+    def __init__(self, owner: "Collector", source: str, slot: int):
+        self.owner, self.source, self.slot = owner, source, slot
+        self.settings = owner.settings
+        self.name = f"{SOURCE_TITLES[source]}, окно {slot + 1}"
+        self.browser: Browser | None = None
+        self.page = None
+        self._last_open = 0.0
+
+    def start(self) -> None:
+        self.browser = Browser(self.settings, profile=f"browser-profile-{self.source}-{self.slot}", slot=self.owner.next_slot())
+        self.browser.start()
+        self.page = self.browser.page
+
+    def stop(self) -> None:
+        if self.browser:
+            self.browser.stop()
+        self.browser = self.page = None
+
+    def log(self, text: str, level: str = "info") -> None:
+        self.owner.log(text, level)
+
+    def checkpoint(self) -> None:
+        self.owner.checkpoint()
+
+    def sleep(self, low: float, high: float | None = None) -> None:
+        end = time.time() + (random.uniform(low, high) if high is not None else low)
+        while time.time() < end:
+            self.checkpoint()
+            time.sleep(min(0.25, max(0.0, end - time.time())))
+
+    def _polite_wait(self) -> None:
+        limit = max(1, int(self.settings.get("cards_per_hour", 600)))
+        limiter = self.owner.limiter(self.source)
+        while True:
+            wait = limiter.reserve(limit)
+            if wait <= 0:
+                break
+            self.log(f"{SOURCE_TITLES[self.source]}: лимит {limit} страниц в час. Жду {int(wait // 60) + 1} мин.", "warn")
+            self.sleep(min(wait, 120))
+        # пауза считается от прошлого открытия: время на разбор страницы в неё входит
+        pause = random.uniform(float(self.settings.get("delay_min", 2)), float(self.settings.get("delay_max", 5)))
+        remaining = self._last_open + pause - time.time()
+        if self._last_open and remaining > 0:
+            self.sleep(remaining)
+        self._last_open = time.time()
+
+    def wait_obstacle(self, cfg: dict, kind: str) -> None:
+        """Капча или блокировка: это окно останавливается и ждёт человека. Ничего не обходим."""
+        message = CAPTCHA_MESSAGE if kind == "капча" else BLOCK_MESSAGE
+        self.log(f"{self.name}: {kind}. {message}", "warn")
+        seen = self.owner.resume_seq
+        self.owner.obstacles[self.name] = message
+        try:
+            while self.owner.resume_seq == seen:
+                if self.owner.stopping():
+                    raise base.Stopped()
+                time.sleep(0.3)
+        finally:
+            self.owner.obstacles.pop(self.name, None)
+        self.log(f"{self.name}: продолжаю после проверки.")
+
+    def open(self, cfg: dict, url: str) -> None:
+        """Открывает страницу источника с паузой, лимитом и проверкой капчи."""
+        self.checkpoint()
+        for _attempt in range(6):
+            self._polite_wait()
+            self.checkpoint()
+            try:
+                response = self.page.goto(url, wait_until="domcontentloaded")
+            except Exception as exc:
+                raise base.SourceError(f"страница не открылась: {str(exc).splitlines()[0]}") from exc
+            obstacle = base.is_captcha(self.page, cfg)
+            if not obstacle and response is not None and response.status in (403, 429):
+                obstacle = "блокировка"
+            if not obstacle:
+                return
+            self.wait_obstacle(cfg, obstacle)
+            if self.page.url.split("#")[0] == url and not base.is_captcha(self.page, cfg):
+                return  # после капчи сайт сам вернул на нужную страницу
+        raise base.SourceError("страница так и не открылась после нескольких проверок")
+
+
 class Collector:
     def __init__(self):
         self.log_file = config.setup_logging()
@@ -28,16 +137,20 @@ class Collector:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._pause = threading.Event()
-        self._resume = threading.Event()
-        self._logs: collections.deque = collections.deque(maxlen=500)
+        self._logs: collections.deque = collections.deque(maxlen=800)
         self._log_id = 0
-        self.status = "idle"  # idle | running | paused | captcha | stopping
-        self.message = ""
+        self.resume_seq = 0
+        self.obstacles: dict[str, str] = {}
         self.job_id = 0
-        self.current = ""
         self.settings: dict = {}
-        self.page = None
-        self._opened: collections.deque = collections.deque()  # время открытия страниц за последний час
+        self._limiters: dict[str, Limiter] = {}
+        self._claimed: set[int] = set()
+        self._current: dict[str, str] = {}
+        self._slots = 0
+        self._failed = False
+        self._enrich_q: queue.Queue = queue.Queue()
+        self._queued: set[int] = set()
+        self._pool: ThreadPoolExecutor | None = None
 
     # ---------- управление ----------
 
@@ -50,9 +163,10 @@ class Collector:
         if not city or not queries or not sources:
             raise ValueError("Укажите город, хотя бы один запрос и хотя бы один источник.")
         districts = [d.strip() for d in params.get("districts") or [] if d.strip()] or [""]
-        clean = {"city": city, "niche": (params.get("niche") or queries[0]).strip(), "queries": queries,
-                 "districts": [d for d in districts if d], "sources": sources,
-                 "enrich": bool(params.get("enrich", True)), "find_sites": bool(params.get("find_sites", True))}
+        niche = (params.get("niche") or queries[0]).strip()
+        clean = {"city": city, "niche": niche, "queries": queries, "districts": [d for d in districts if d],
+                 "sources": sources, "enrich": bool(params.get("enrich", True)),
+                 "find_sites": bool(params.get("find_sites", True)), "base_id": db.ensure_base(niche, city)}
         job_id = db.execute("INSERT INTO jobs(params, status, created_at) VALUES(?, 'running', ?)",
                             (json.dumps(clean, ensure_ascii=False), db.now()))
         for source in sources:
@@ -74,33 +188,68 @@ class Collector:
     def _launch(self, job_id: int) -> None:
         self._stop.clear()
         self._pause.clear()
-        self._resume.clear()
-        self.job_id, self.status, self.message, self.current = job_id, "running", "", ""
+        self.obstacles.clear()
+        self._claimed, self._queued, self._current = set(), set(), {}
+        self._slots, self._failed, self.job_id = 0, False, job_id
+        self._enrich_q = queue.Queue()
         self._thread = threading.Thread(target=self._run, args=(job_id,), daemon=True, name="collector")
         self._thread.start()
 
     def busy(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
 
+    def stopping(self) -> bool:
+        return self._stop.is_set()
+
+    @property
+    def status(self) -> str:
+        if not self.busy():
+            return "idle"
+        if self._stop.is_set():
+            return "stopping"
+        if self.obstacles:
+            return "captcha"
+        return "paused" if self._pause.is_set() else "running"
+
+    @property
+    def message(self) -> str:
+        items = list(self.obstacles.items())
+        return f"{items[0][0]}: {items[0][1]}" if items else ""
+
     def pause(self) -> None:
-        if self.busy() and self.status == "running":
+        if self.busy() and not self._pause.is_set():
             self._pause.set()
-            self.status = "paused"
             self.log("Пауза. Нажмите «Продолжить», чтобы идти дальше.")
 
     def resume(self) -> None:
+        if self._pause.is_set():
+            self.log("Продолжаю.")
         self._pause.clear()
-        self._resume.set()
+        self.resume_seq += 1
 
     def stop(self) -> None:
         if self.busy():
-            self.status = "stopping"
             self._stop.set()
-            self._resume.set()
 
     def join(self, timeout: float | None = None) -> None:
         if self._thread:
             self._thread.join(timeout)
+
+    def limiter(self, source: str) -> Limiter:
+        with self._lock:
+            return self._limiters.setdefault(source, Limiter())
+
+    def next_slot(self) -> int:
+        with self._lock:
+            self._slots += 1
+            return self._slots - 1
+
+    def checkpoint(self) -> None:
+        """Точка, где окно может встать на паузу или остановиться."""
+        while self._pause.is_set() and not self._stop.is_set():
+            time.sleep(0.2)
+        if self._stop.is_set():
+            raise base.Stopped()
 
     # ---------- состояние для интерфейса ----------
 
@@ -132,124 +281,99 @@ class Collector:
             }
         with self._lock:
             logs = [entry for entry in self._logs if entry["id"] > since]
-        status = self.status if self.busy() else "idle"
-        return {"status": status, "message": self.message, "current": self.current, "job": job, "logs": logs,
-                "per_hour": len(self._opened), "resumable": bool(job and job["status"] in ("paused", "running") and status == "idle")}
-
-    # ---------- вежливый режим ----------
-
-    def checkpoint(self) -> None:
-        """Точка, где сбор может встать на паузу или остановиться."""
-        if self._stop.is_set():
-            raise base.Stopped()
-        if self._pause.is_set():
-            self._resume.clear()
-            while self._pause.is_set() and not self._stop.is_set():
-                self._resume.wait(0.3)
-            if self._stop.is_set():
-                raise base.Stopped()
-            self.status = "running"
-            self.log("Продолжаю.")
-
-    def sleep(self, low: float, high: float | None = None) -> None:
-        end = time.time() + (random.uniform(low, high) if high is not None else low)
-        while time.time() < end:
-            self.checkpoint()
-            time.sleep(min(0.25, max(0.0, end - time.time())))
-
-    def _polite_wait(self) -> None:
-        limit = max(1, int(self.settings.get("cards_per_hour", 300)))
-        now = time.time()
-        while self._opened and now - self._opened[0] > 3600:
-            self._opened.popleft()
-        if len(self._opened) >= limit:
-            wait = 3600 - (now - self._opened[0]) + 1
-            self.log(f"Достигнут лимит {limit} страниц в час. Жду {int(wait // 60) + 1} мин.", "warn")
-            self.message = f"Лимит {limit} страниц в час: продолжу автоматически"
-            self.sleep(wait)
-            self.message = ""
-        if self._opened:
-            self.sleep(float(self.settings.get("delay_min", 3)), float(self.settings.get("delay_max", 8)))
-        self._opened.append(time.time())
-
-    def wait_obstacle(self, cfg: dict, kind: str) -> None:
-        """Капча или блокировка: останавливаемся и ждём человека. Ничего не обходим."""
-        self.status = "captcha"
-        self.message = CAPTCHA_MESSAGE if kind == "капча" else BLOCK_MESSAGE
-        self.log(f"{cfg.get('title', '')}: {kind}. {self.message}", "warn")
-        self._resume.clear()
-        while not self._resume.is_set():
-            if self._stop.is_set():
-                raise base.Stopped()
-            self._resume.wait(0.3)
-        if self._stop.is_set():
-            raise base.Stopped()
-        self.status, self.message = "running", ""
-        self.log("Продолжаю после проверки.")
-
-    def open(self, cfg: dict, url: str) -> None:
-        """Открывает страницу источника с паузой, лимитом и проверкой капчи."""
-        self.checkpoint()
-        for _attempt in range(6):
-            self._polite_wait()
-            self.checkpoint()
-            try:
-                response = self.page.goto(url, wait_until="domcontentloaded")
-            except Exception as exc:
-                raise base.SourceError(f"страница не открылась: {str(exc).splitlines()[0]}") from exc
-            obstacle = base.is_captcha(self.page, cfg)
-            if not obstacle and response is not None and response.status in (403, 429):
-                obstacle = "блокировка"
-            if not obstacle:
-                return
-            self.wait_obstacle(cfg, obstacle)
-            if self.page.url.split("#")[0] == url and not base.is_captcha(self.page, cfg):
-                return  # после капчи сайт сам вернул на нужную страницу
-        raise base.SourceError("страница так и не открылась после нескольких проверок")
+            per_hour = sum(limiter.count() for limiter in self._limiters.values())
+        status = self.status
+        return {"status": status, "message": self.message, "current": " · ".join(self._current.values()), "job": job,
+                "logs": logs, "per_hour": per_hour, "windows": len(self._current), "sites_left": self._enrich_q.qsize(), "recheck_left": rechecker.left,
+                "resumable": bool(job and job["status"] in ("paused", "running") and status == "idle")}
 
     # ---------- сам сбор ----------
 
     def _run(self, job_id: int) -> None:
-        browser = None
         final = "done"
         try:
             self.settings = db.get_settings()
             params = json.loads(db.query("SELECT params FROM jobs WHERE id = ?", (job_id,))[0]["params"])
-            self.log(f"Сбор №{job_id}: {params['city']}, запросов: {len(params['queries'])}, "
+            params.setdefault("base_id", db.ensure_base(params["niche"], params["city"]))
+            windows = min(3, max(1, int(self.settings.get("windows_per_source", 2))))
+            self._pool = ThreadPoolExecutor(max_workers=min(12, max(1, int(self.settings.get("site_threads", 6)))))
+            workers = []
+            for source in params["sources"]:
+                left = db.query("SELECT COUNT(*) AS n FROM job_tasks WHERE job_id = ? AND source = ? AND status != 'done'",
+                                (job_id, source))[0]["n"]
+                for slot in range(min(windows, left)):
+                    workers.append(threading.Thread(target=self._source_worker, args=(job_id, params, source, slot), daemon=True))
+            self.log(f"Сбор №{job_id}: {params['city']}, запросов: {len(params['queries'])}, окон браузера: {len(workers)}, "
                      f"источники: {', '.join(SOURCE_TITLES[s] for s in params['sources'])}")
-            browser = Browser(self.settings)
-            browser.start()
-            self.page = browser.page
-            tasks = db.query("SELECT * FROM job_tasks WHERE job_id = ? AND status != 'done' ORDER BY id", (job_id,))
-            for task in tasks:
-                self._run_task(job_id, params, dict(task))
-            self.log("Сбор завершён.")
-        except base.Stopped:
-            final = "paused"
-            self.log("Сбор остановлен. Его можно продолжить позже с того же места.")
-        except BrowserError as exc:
-            final = "paused"
-            self.log(str(exc), "error")
+            enricher = threading.Thread(target=self._enrich_worker, args=(params,), daemon=True)
+            if params.get("enrich"):  # компании, чьи сайты не успели проверить до остановки
+                for row in db.query("SELECT id FROM companies WHERE job_id = ? AND enriched = 0", (job_id,)):
+                    self._queue_enrich(row["id"])
+            enricher.start()
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+            self._enrich_q.put(None)
+            enricher.join()
+            self._pool.shutdown(wait=True, cancel_futures=self._stop.is_set())
+            if self._stop.is_set():
+                final = "paused"
+                self.log("Сбор остановлен. Его можно продолжить позже с того же места.")
+            elif self._failed:
+                final = "paused"
+            else:
+                self.log("Сбор завершён.")
         except Exception as exc:  # непредвиденная ошибка не должна терять прогресс
             final = "paused"
+            self._stop.set()
             self.log(f"Сбор прерван из-за ошибки: {exc}. Прогресс сохранён, сбор можно продолжить.", "error")
             self.log_file.exception("сбор прерван")
         finally:
-            if browser:
-                browser.stop()
-            self.page = None
             db.execute("UPDATE jobs SET status = ?, finished_at = ? WHERE id = ?", (final, db.now(), job_id))
-            self.status, self.message, self.current = "idle", "", ""
+            self._current = {}
+            self.obstacles.clear()
 
-    def _run_task(self, job_id: int, params: dict, task: dict) -> None:
+    def _claim_task(self, job_id: int, source: str) -> dict | None:
+        with self._lock:
+            rows = db.query("SELECT * FROM job_tasks WHERE job_id = ? AND source = ? AND status != 'done' ORDER BY id", (job_id, source))
+            for row in rows:
+                if row["id"] not in self._claimed:
+                    self._claimed.add(row["id"])
+                    return dict(row)
+        return None
+
+    def _source_worker(self, job_id: int, params: dict, source: str, slot: int) -> None:
+        session = Session(self, source, slot)
+        try:
+            session.start()
+            while True:
+                task = self._claim_task(job_id, source)
+                if not task:
+                    break
+                self._run_task(session, job_id, params, task)
+        except base.Stopped:
+            pass
+        except BrowserError as exc:
+            self._failed = True
+            self.log(str(exc), "error")
+        except Exception as exc:
+            self._failed = True
+            self.log(f"{session.name}: окно остановилось из-за ошибки: {exc}", "error")
+            self.log_file.exception("ошибка окна")
+        finally:
+            self._current.pop(session.name, None)
+            session.stop()
+
+    def _run_task(self, session: Session, job_id: int, params: dict, task: dict) -> None:
         source = SOURCES[task["source"]]
         title = SOURCE_TITLES[task["source"]]
         query = f"{task['query']} {task['district']}".strip()
-        self.current = f"{title}: {query}"
+        self._current[session.name] = f"{title}: {query}"
         if task["status"] == "pending":
             self.log(f"{title}: ищу «{query}»")
             try:
-                for page_no, links in source.collect_links(self, params["city"], query, task["page"] + 1):
+                for page_no, links in source.collect_links(session, params["city"], query, task["page"] + 1):
                     for url in links:
                         db.execute("INSERT OR IGNORE INTO job_cards(job_id, task_id, source, url) VALUES(?, ?, ?, ?)",
                                    (job_id, task["id"], task["source"], url))
@@ -260,11 +384,11 @@ class Collector:
             db.execute("UPDATE job_tasks SET status = 'listed' WHERE id = ?", (task["id"],))
         cards = db.query("SELECT * FROM job_cards WHERE task_id = ? AND status = 'pending' ORDER BY id", (task["id"],))
         for card in cards:
-            self.checkpoint()
-            self._run_card(job_id, params, task, dict(card))
+            session.checkpoint()
+            self._run_card(session, job_id, params, task, dict(card))
         db.execute("UPDATE job_tasks SET status = 'done' WHERE id = ?", (task["id"],))
 
-    def _run_card(self, job_id: int, params: dict, task: dict, card: dict) -> None:
+    def _run_card(self, session: Session, job_id: int, params: dict, task: dict, card: dict) -> None:
         source = SOURCES[card["source"]]
         key = CARD_KEYS[card["source"]]
         try:
@@ -272,16 +396,16 @@ class Collector:
             if known:
                 db.execute("UPDATE job_cards SET status = 'skipped' WHERE id = ?", (card["id"],))
                 return
-            company = source.parse_card(self, card["url"])
+            company = source.parse_card(session, card["url"])
             company.setdefault("city", params["city"])
             company.setdefault("niche", params["niche"])
             if task["district"] and not company.get("district"):
                 company["district"] = task["district"]
-            company_id, created = db.upsert_company(company, job_id, self.settings)
+            company_id, created = db.upsert_company(company, job_id, self.settings, params.get("base_id", 0))
             db.execute("UPDATE jobs SET found = found + 1, added = added + ? WHERE id = ?", (1 if created else 0, job_id))
             self.log(f"{'＋' if created else '＝'} {company['name']}" + ("" if created else " (дубль, объединён)"))
             if params.get("enrich") and not company.get("enriched"):
-                self._enrich(company_id, params)
+                self._queue_enrich(company_id)
             db.execute("UPDATE job_cards SET status = 'done' WHERE id = ?", (card["id"],))
         except base.Stopped:
             raise
@@ -290,36 +414,111 @@ class Collector:
             db.execute("UPDATE job_cards SET status = 'error', error = ? WHERE id = ?", (text[:300], card["id"]))
             self.log(f"Ошибка на карточке {card['url']}: {text}", "error")
 
-    def _enrich(self, company_id: int, params: dict) -> None:
-        company = db.get_company(company_id)
-        if company.get("enriched"):
-            return
-        updates: dict = {"enriched": 1}
-        site = company.get("site") or ""
-        if not site and params.get("find_sites"):
-            try:
-                site = yandex_search.find_site(self, company["name"], company.get("city") or params["city"])
-            except base.SourceError as exc:
-                self.log(f"Поиск сайта для «{company['name']}»: {exc}", "warn")
+    # ---------- проверка сайтов (идёт параллельно со сбором) ----------
+
+    def _queue_enrich(self, company_id: int) -> None:
+        with self._lock:
+            if company_id in self._queued:
+                return
+            self._queued.add(company_id)
+        self._enrich_q.put(company_id)
+
+    def _enrich_worker(self, params: dict) -> None:
+        """Разбирает очередь компаний: ищет сайт через поиск (своё окно) и отдаёт сайты на проверку."""
+        session: Session | None = None
+        try:
+            while True:
+                try:
+                    company_id = self._enrich_q.get(timeout=0.3)
+                except queue.Empty:
+                    if self._stop.is_set():
+                        return
+                    continue
+                if company_id is None or self._stop.is_set():
+                    return
+                company = db.get_company(company_id)
+                if company.get("enriched"):
+                    continue
+                site, found_by = company.get("site") or "", ""
+                if not site and params.get("find_sites"):
+                    try:
+                        if session is None:
+                            session = Session(self, "yandex_search", 9)
+                            session.name = "Поиск сайтов"
+                            session.start()
+                        site = yandex_search.find_site(session, company["name"], company.get("city") or params["city"])
+                    except base.SourceError as exc:
+                        self.log(f"Поиск сайта для «{company['name']}»: {exc}", "warn")
+                    except BrowserError as exc:
+                        self.log(f"Поиск сайтов отключён: {exc}", "error")
+                        params["find_sites"] = False
+                    if site:
+                        found_by = "search"
+                        self.log(f"   {company['name']}: сайт найден через поиск: {site}")
+                self._pool.submit(self._check_site, company_id, company["name"], site, found_by)
+        except base.Stopped:
+            pass
+        finally:
+            if session:
+                session.stop()
+
+    def _check_site(self, company_id: int, name: str, site: str, found_by: str) -> None:
+        try:
+            updates: dict = {"enriched": 1}
             if site:
-                updates.update(site=site, site_found_by="search")
-                self.log(f"   сайт найден через поиск: {site}")
-        if site:
-            result = site_check.check(site, timeout=int(self.settings.get("page_timeout", 45)))
-            result.pop("title", None)
-            for field in ("phones", "emails"):
-                updates[field] = list(dict.fromkeys(company.get(field, []) + result.pop(field, [])))
-            for field in ("telegram", "whatsapp", "max", "vk", "instagram", "booking"):
-                value = result.pop(field, "")
-                if value and not company.get(field):
-                    updates[field] = value
-            updates.update(result)
-            if result["site_status"] == "down":
-                self.log(f"   сайт {site} не открывается: {result['site_error']}", "warn")
-        db.update_company(company_id, updates, self.settings)
+                result = site_check.check(site, timeout=int(self.settings.get("page_timeout", 45)))
+                result.pop("title", None)
+                updates.update(result)
+                if found_by:
+                    updates.update(site=site, site_found_by=found_by)
+                if result["site_status"] == "down":
+                    self.log(f"   {name}: сайт {site} не открывается: {result['site_error']}", "warn")
+            db.enrich_company(company_id, updates, self.settings)
+        except Exception as exc:
+            self.log(f"Проверка сайта «{name}»: {exc}", "error")
+            self.log_file.exception("ошибка проверки сайта")
+
+
+class Rechecker:
+    """Повторная проверка сайтов у уже собранных компаний (без браузера)."""
+
+    def __init__(self):
+        self.left = 0
+        self._lock = threading.Lock()
+
+    def start(self, base_id: int = 0) -> int:
+        if self.left:
+            raise RuntimeError("Перепроверка уже идёт.")
+        where, args = ("AND base_id = ?", (base_id,)) if base_id else ("", ())
+        rows = db.query(f"SELECT id, name, site FROM companies WHERE site != '' {where}", args)
+        if not rows:
+            return 0
+        settings = db.get_settings()
+        self.left = len(rows)
+        collector.log(f"Перепроверка сайтов: {len(rows)}")
+        pool = ThreadPoolExecutor(max_workers=min(12, max(1, int(settings.get("site_threads", 6)))))
+
+        def one(row) -> None:
+            try:
+                result = site_check.check(row["site"], timeout=int(settings.get("page_timeout", 45)))
+                result.pop("title", None)
+                db.enrich_company(row["id"], dict(result, enriched=1), settings)
+            except Exception as exc:
+                collector.log(f"Проверка сайта «{row['name']}»: {exc}", "error")
+            finally:
+                with self._lock:
+                    self.left -= 1
+                    if self.left == 0:
+                        collector.log("Перепроверка сайтов завершена.")
+
+        for row in rows:
+            pool.submit(one, row)
+        pool.shutdown(wait=False)
+        return len(rows)
 
 
 collector = Collector()
+rechecker = Rechecker()
 
 
 def mark_interrupted_jobs() -> None:

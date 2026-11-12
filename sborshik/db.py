@@ -12,16 +12,16 @@ import config
 import segments
 import textutil
 
-LIST_FIELDS = ("phones", "emails", "rubrics", "tags", "reasons")
+LIST_FIELDS = ("phones", "emails", "rubrics", "tags", "reasons", "site_issues")
 DICT_FIELDS = ("card_urls",)
 TEXT_FIELDS = (
     "name", "address", "district", "city", "niche", "hours", "site", "telegram", "whatsapp", "max", "vk",
     "instagram", "booking", "site_status", "site_error", "site_found_by", "site_checked_at", "notes",
-    "next_touch", "message",
+    "next_touch", "message", "site_look",
 )
 NUM_FIELDS = (
     "rating", "reviews", "branches", "site_ssl", "site_calc", "site_form", "site_booking", "site_chat",
-    "site_mobile", "site_year", "enriched",
+    "site_mobile", "site_year", "enriched", "site_time", "site_pages",
 )
 COMPUTED = ("segment", "segment_reason", "not_my_client", "nmc_reason")
 EXPORT_FIELDS = [
@@ -31,8 +31,8 @@ EXPORT_FIELDS = [
     ("vk", "VK"), ("instagram", "Instagram"), ("hours", "Часы работы"), ("booking", "Онлайн-запись"),
     ("card_urls", "Карточки"), ("site_status", "Сайт работает"), ("site_ssl", "SSL"),
     ("site_calc", "Калькулятор"), ("site_form", "Форма заявки"), ("site_booking", "Запись на сайте"),
-    ("site_chat", "Чат на сайте"), ("site_mobile", "Мобильная версия"), ("site_year", "Год в футере"),
-    ("segment", "Сегмент"), ("segment_reason", "Причина"), ("reasons", "Все наблюдения"),
+    ("site_chat", "Чат на сайте"), ("site_mobile", "Мобильная версия"), ("site_year", "Год в футере"), ("site_look", "Вид сайта"), ("site_pages", "Страниц на сайте"), ("site_time", "Загрузка сайта, сек"),
+    ("segment", "Сегмент"), ("segment_reason", "Причина"), ("reasons", "Все проблемы"),
     ("not_my_client", "Не мой клиент"), ("status", "Статус"), ("status_changed_at", "Статус изменён"),
     ("next_touch", "Следующее касание"), ("notes", "Заметки"), ("message", "Сообщение"), ("niche", "Ниша"),
     ("created_at", "Добавлена"),
@@ -49,12 +49,17 @@ CREATE TABLE IF NOT EXISTS companies (
     site_status TEXT DEFAULT '', site_error TEXT DEFAULT '', site_found_by TEXT DEFAULT '',
     site_checked_at TEXT DEFAULT '', site_ssl INTEGER DEFAULT 0, site_calc INTEGER DEFAULT 0,
     site_form INTEGER DEFAULT 0, site_booking INTEGER DEFAULT 0, site_chat INTEGER DEFAULT 0,
-    site_mobile INTEGER DEFAULT 0, site_year INTEGER DEFAULT 0,
+    site_mobile INTEGER DEFAULT 0, site_year INTEGER DEFAULT 0, site_issues TEXT DEFAULT '[]', site_time REAL DEFAULT 0, site_look TEXT DEFAULT '', site_pages INTEGER DEFAULT 0,
+    base_id INTEGER DEFAULT 0,
     segment TEXT DEFAULT '', segment_reason TEXT DEFAULT '', reasons TEXT DEFAULT '[]', tags TEXT DEFAULT '[]',
     not_my_client INTEGER DEFAULT 0, nmc_reason TEXT DEFAULT '',
     status TEXT DEFAULT 'new', status_changed_at TEXT DEFAULT '', next_touch TEXT DEFAULT '',
     notes TEXT DEFAULT '', message TEXT DEFAULT '', enriched INTEGER DEFAULT 0, job_id INTEGER DEFAULT 0,
     created_at TEXT DEFAULT '', updated_at TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS bases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, niche TEXT DEFAULT '', city TEXT DEFAULT '',
+    intro TEXT DEFAULT '', created_at TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS company_keys (key TEXT PRIMARY KEY, company_id INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_keys_company ON company_keys(company_id);
@@ -77,9 +82,12 @@ CREATE TABLE IF NOT EXISTS job_cards (
 );
 """
 
+MIGRATIONS = [("site_issues", "TEXT DEFAULT '[]'"), ("site_time", "REAL DEFAULT 0"), ("site_look", "TEXT DEFAULT ''"),
+              ("site_pages", "INTEGER DEFAULT 0"), ("base_id", "INTEGER DEFAULT 0")]
+
+SMART_TEMPLATE = ("Умное первое сообщение", "Здравствуйте! {представление}{зацепка} {проблема} {предложение} Интересно?")
 DEFAULT_TEMPLATES = [
-    ("Первое сообщение", "Здравствуйте! Нашёл «{название}» на картах — у вас {отзывы} отзывов, видно, что клиенты довольны. "
-     "Заметил одну вещь: {проблема}. Могу показать, как это исправить за пару дней. Удобно, если напишу подробнее?"),
+    SMART_TEMPLATE,
     ("Повторное касание", "Здравствуйте! Писал вам на днях про «{название}». Если сейчас не до этого — скажите, "
      "вернусь позже. Если интересно, пришлю короткий пример."),
 ]
@@ -102,9 +110,68 @@ def connect(path: Path | None = None) -> None:
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.executescript(SCHEMA)
+        have = {row["name"] for row in _conn.execute("PRAGMA table_info(companies)")}
+        for column, kind in MIGRATIONS:  # базы, созданные прошлыми версиями
+            if column not in have:
+                _conn.execute(f"ALTER TABLE companies ADD COLUMN {column} {kind}")
+        _conn.create_function("lower_ru", 1, lambda text: (text or "").lower())
         if not _conn.execute("SELECT 1 FROM templates LIMIT 1").fetchone():
             _conn.executemany("INSERT INTO templates(name, body) VALUES(?, ?)", DEFAULT_TEMPLATES)
+        elif not _conn.execute("SELECT 1 FROM templates WHERE name = ?", (SMART_TEMPLATE[0],)).fetchone():
+            _conn.execute("INSERT INTO templates(name, body) VALUES(?, ?)", SMART_TEMPLATE)
+        # компании из прошлых версий раскладываем по базам «ниша, город»
+        for row in _conn.execute("SELECT DISTINCT niche, city FROM companies WHERE base_id = 0").fetchall():
+            base_id = _ensure_base(_conn, row["niche"], row["city"])
+            _conn.execute("UPDATE companies SET base_id = ? WHERE base_id = 0 AND niche = ? AND city = ?",
+                          (base_id, row["niche"], row["city"]))
         _conn.commit()
+
+
+def _ensure_base(conn: sqlite3.Connection, niche: str, city: str) -> int:
+    niche, city = (niche or "").strip() or "Без ниши", (city or "").strip()
+    row = conn.execute("SELECT id FROM bases WHERE lower_ru(niche) = ? AND lower_ru(city) = ?", (niche.lower(), city.lower())).fetchone()
+    if row:
+        return row["id"]
+    name = f"{niche[:1].upper()}{niche[1:]}" + (f", {city}" if city else "")
+    intro = f"делаю сайты для бизнеса в сфере «{niche}»" + (f", {city}" if city else "")
+    return conn.execute("INSERT INTO bases(name, niche, city, intro, created_at) VALUES(?, ?, ?, ?, ?)",
+                        (name, niche, city, intro, now())).lastrowid
+
+
+def ensure_base(niche: str, city: str) -> int:
+    """Находит или создаёт базу-папку для ниши и города."""
+    with _lock:
+        base_id = _ensure_base(_db(), niche, city)
+        _db().commit()
+    return base_id
+
+
+def list_bases() -> list[dict]:
+    rows = query("""SELECT b.*, COUNT(c.id) AS total,
+        SUM(CASE WHEN c.status = 'new' AND c.not_my_client = 0 THEN 1 ELSE 0 END) AS fresh,
+        SUM(CASE WHEN c.status IN ('replied', 'interest') THEN 1 ELSE 0 END) AS warm,
+        SUM(CASE WHEN c.status = 'client' THEN 1 ELSE 0 END) AS clients
+        FROM bases b LEFT JOIN companies c ON c.base_id = b.id GROUP BY b.id ORDER BY b.id DESC""")
+    return [dict(r) for r in rows]
+
+
+def get_base(base_id: int) -> dict:
+    rows = query("SELECT * FROM bases WHERE id = ?", (base_id,))
+    return dict(rows[0]) if rows else {}
+
+
+def update_base(base_id: int, name: str | None, intro: str | None) -> None:
+    if name is not None and name.strip():
+        execute("UPDATE bases SET name = ? WHERE id = ?", (name.strip()[:120], base_id))
+    if intro is not None:
+        execute("UPDATE bases SET intro = ? WHERE id = ?", (intro.strip()[:300], base_id))
+
+
+def delete_base(base_id: int) -> int:
+    ids = [r["id"] for r in query("SELECT id FROM companies WHERE base_id = ?", (base_id,))]
+    delete_companies(ids)
+    execute("DELETE FROM bases WHERE id = ?", (base_id,))
+    return len(ids)
 
 
 def _db() -> sqlite3.Connection:
@@ -140,6 +207,8 @@ def get_settings() -> dict:
 def _check_setting(key: str, value):
     """Приводит значение настройки к нужному типу; мусор не сохраняется."""
     default = config.DEFAULT_SETTINGS[key]
+    if isinstance(default, str) and key != "browser":
+        return str(value).strip()[:200]
     if key == "browser":
         if value not in ("auto", "chromium", "msedge", "chrome"):
             raise ValueError("Неизвестный браузер.")
@@ -206,7 +275,7 @@ def _clean(data: dict) -> dict:
     for field in NUM_FIELDS:
         if data.get(field):
             try:
-                out[field] = float(data[field]) if field == "rating" else int(float(data[field]))
+                out[field] = float(data[field]) if field in ("rating", "site_time") else int(float(data[field]))
             except (TypeError, ValueError):
                 pass
     phones = []
@@ -218,6 +287,8 @@ def _clean(data: dict) -> dict:
     out["emails"] = list(dict.fromkeys(e.lower() for e in data.get("emails") or [] if e))
     out["rubrics"] = list(dict.fromkeys(r.strip() for r in data.get("rubrics") or [] if r and r.strip()))
     out["card_urls"] = dict(data.get("card_urls") or {})
+    if data.get("site_issues"):
+        out["site_issues"] = [list(pair)[:2] for pair in data["site_issues"]]
     if out.get("site"):
         out["site"] = textutil.norm_site(out["site"]) if textutil.is_company_site(out["site"]) else ""
     return out
@@ -228,6 +299,8 @@ def _merge(old: dict, new: dict) -> dict:
     for field in ("phones", "emails", "rubrics"):
         merged[field] = list(dict.fromkeys((old.get(field) or []) + (new.get(field) or [])))
     merged["card_urls"] = {**(old.get("card_urls") or {}), **(new.get("card_urls") or {})}
+    if new.get("site_issues") and not old.get("site_issues"):
+        merged["site_issues"] = new["site_issues"]
     for field in TEXT_FIELDS + NUM_FIELDS:
         if field == "site_found_by" and old.get("site"):
             continue  # сайт уже был известен из карточки
@@ -257,29 +330,50 @@ def _refresh(company_id: int, settings: dict | None = None) -> dict:
     return get_company(company_id)
 
 
-def find_duplicate(company: dict) -> int | None:
+def find_duplicates(company: dict) -> list[int]:
     keys = _keys_for(company)
     if not keys:
-        return None
+        return []
     marks = ",".join("?" * len(keys))
-    rows = query(f"SELECT MIN(company_id) AS id FROM company_keys WHERE key IN ({marks})", keys)
-    return rows[0]["id"] if rows and rows[0]["id"] else None
+    return [r["company_id"] for r in query(f"SELECT DISTINCT company_id FROM company_keys WHERE key IN ({marks}) ORDER BY company_id", keys)]
 
 
-def upsert_company(data: dict, job_id: int = 0, settings: dict | None = None) -> tuple[int, bool]:
+def _absorb(main_id: int, other_id: int) -> None:
+    """Вливает компанию other в main: новая запись показала, что это одна и та же компания."""
+    main, other = get_company(main_id), get_company(other_id)
+    fields = _merge(main, other)
+    for key in ("notes", "message", "next_touch"):
+        if other.get(key) and not main.get(key):
+            fields[key] = other[key]
+    _write(main_id, fields)
+    if main["status"] == "new" and other["status"] != "new":  # сохраняем ход переписки
+        _db().execute("UPDATE companies SET status = ?, status_changed_at = ? WHERE id = ?",
+                      (other["status"], other["status_changed_at"], main_id))
+        _db().execute("UPDATE status_history SET company_id = ? WHERE company_id = ?", (main_id, other_id))
+    _db().execute("UPDATE OR REPLACE company_keys SET company_id = ? WHERE company_id = ?", (main_id, other_id))
+    _db().execute("DELETE FROM status_history WHERE company_id = ?", (other_id,))
+    _db().execute("DELETE FROM companies WHERE id = ?", (other_id,))
+
+
+def upsert_company(data: dict, job_id: int = 0, settings: dict | None = None, base_id: int = 0) -> tuple[int, bool]:
     """Добавляет компанию или склеивает с дублем. Возвращает (id, новая ли)."""
     new = _clean(data)
     if not new.get("name"):
         raise ValueError("у компании нет названия")
     with _lock:
-        existing_id = find_duplicate(new)
+        matches = find_duplicates(new)
+        existing_id = matches[0] if matches else None
+        for other_id in matches[1:]:
+            _absorb(existing_id, other_id)
         if existing_id:
             _write(existing_id, _merge(get_company(existing_id), new))
             created = False
             company_id = existing_id
         else:
             stamp = now()
-            encoded = _encode(dict(new, job_id=job_id, created_at=stamp, updated_at=stamp, status="new",
+            if not base_id:
+                base_id = _ensure_base(_db(), new.get("niche", ""), new.get("city", ""))
+            encoded = _encode(dict(new, job_id=job_id, base_id=base_id, created_at=stamp, updated_at=stamp, status="new",
                                    status_changed_at=stamp))
             cols = ", ".join(encoded)
             marks = ", ".join("?" * len(encoded))
@@ -297,6 +391,29 @@ def update_company(company_id: int, fields: dict, settings: dict | None = None) 
     with _lock:
         if fields:
             _write(company_id, fields)
+        company = _refresh(company_id, settings)
+        _db().commit()
+    return company
+
+
+CONTACT_FIELDS = ("telegram", "whatsapp", "max", "vk", "instagram", "booking", "site", "site_found_by")
+
+
+def enrich_company(company_id: int, data: dict, settings: dict | None = None) -> dict:
+    """Дописывает результат проверки сайта. Чтение и запись идут под одним замком, поэтому
+    данные, добавленные параллельно другим окном, не теряются."""
+    with _lock:
+        old = get_company(company_id)
+        fields: dict = {}
+        for key, value in data.items():
+            if key in ("phones", "emails"):
+                fields[key] = list(dict.fromkeys(old.get(key, []) + list(value or [])))
+            elif key in CONTACT_FIELDS:
+                if value and not old.get(key):
+                    fields[key] = value
+            elif key in TEXT_FIELDS + NUM_FIELDS + LIST_FIELDS:
+                fields[key] = value
+        _write(company_id, fields)
         company = _refresh(company_id, settings)
         _db().commit()
     return company
@@ -354,6 +471,9 @@ def _where(f: dict) -> tuple[str, list]:
     if f.get("tag"):
         cond.append("tags LIKE ?")
         args.append(f'%"{f["tag"]}"%')
+    if f.get("base_id"):
+        cond.append("base_id = ?")
+        args.append(int(f["base_id"]))
     if f.get("job_id"):
         cond.append("job_id = ?")
         args.append(int(f["job_id"]))
@@ -383,7 +503,6 @@ def list_companies(filters: dict | None = None) -> dict:
     direction = "ASC" if str(f.get("dir", "desc")).lower() == "asc" else "DESC"
     limit, offset = int(f.get("limit") or 100000), int(f.get("offset") or 0)
     with _lock:
-        _db().create_function("lower_ru", 1, lambda s: (s or "").lower())
         total = _db().execute(f"SELECT COUNT(*) FROM companies{where}", args).fetchone()[0]
         rows = _db().execute(
             f"SELECT * FROM companies{where} ORDER BY {sort} {direction}, id DESC LIMIT ? OFFSET ?", (*args, limit, offset)
@@ -391,12 +510,18 @@ def list_companies(filters: dict | None = None) -> dict:
     return {"total": total, "items": [_row_to_company(r) for r in rows]}
 
 
-def facets() -> dict:
-    cities = [r[0] for r in query("SELECT DISTINCT city FROM companies WHERE city != '' ORDER BY city")]
-    segs = [dict(r) for r in query("SELECT segment AS name, COUNT(*) AS n FROM companies GROUP BY segment ORDER BY n DESC")]
+def facets(base_id: int = 0) -> dict:
+    only, arg = (" AND base_id = ?", (base_id,)) if base_id else ("", ())
+    cities = [r[0] for r in query("SELECT DISTINCT city FROM companies WHERE city != ''" + only + " ORDER BY city", arg)]
+    segs = [dict(r) for r in query("SELECT segment AS name, COUNT(*) AS n FROM companies WHERE 1 = 1" + only + " GROUP BY segment ORDER BY n DESC", arg)]
     statuses = {r["status"]: r["n"] for r in query("SELECT status, COUNT(*) AS n FROM companies WHERE not_my_client = 0 GROUP BY status")}
     total = query("SELECT COUNT(*) AS n FROM companies")[0]["n"]
-    return {"cities": cities, "segments": segs, "statuses": statuses, "total": total}
+    counts: dict[str, int] = {}
+    for row in query("SELECT tags FROM companies WHERE not_my_client = 0" + only, arg):
+        for tag in json.loads(row["tags"] or "[]"):
+            counts[tag] = counts.get(tag, 0) + 1
+    tags = [{"name": name, "n": n} for name, n in sorted(counts.items(), key=lambda item: -item[1])]
+    return {"cities": cities, "segments": segs, "statuses": statuses, "total": total, "tags": tags}
 
 
 def recompute_segments() -> None:

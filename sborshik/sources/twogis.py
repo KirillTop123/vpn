@@ -116,7 +116,7 @@ def collect_links(session, city: str, query: str, start_page: int = 1):
         session.open(cfg, url)
         page = session.page
         try:
-            page.wait_for_selector(cfg["card_link"], timeout=8000)
+            page.wait_for_selector(cfg["card_link"], timeout=5000)
         except Exception:
             pass
         hrefs = page.eval_on_selector_all(cfg["card_link"], "els => els.map(e => e.href)")
