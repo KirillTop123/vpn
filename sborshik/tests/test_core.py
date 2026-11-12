@@ -79,3 +79,21 @@ def test_export_import_roundtrip(fresh_db):
     csv_text = "ID;Статус;Заметки\n%d;Написал;из таблицы\n" % other
     assert exporter.import_file("x.csv", csv_text.encode("utf-8-sig"))["updated"] == 1
     assert (db.get_company(other)["status"], db.get_company(other)["notes"]) == ("written", "из таблицы")
+
+
+def test_site_check_refuses_internal_addresses(monkeypatch):
+    from enrich import site_check
+    monkeypatch.delenv("SBORSHIK_ALLOW_PRIVATE")
+    for address in ("http://127.0.0.1:8765", "http://192.168.1.1", "http://169.254.169.254", "http://localhost"):
+        result = site_check.check(address)
+        assert result["site_status"] == "down" and result["site_error"] == site_check.INTERNAL_ERROR, address
+    assert site_check.is_public_host("93.184.216.34")
+
+
+def test_settings_are_validated(fresh_db):
+    import pytest
+    with pytest.raises(ValueError):
+        fresh_db.save_settings({"many_reviews": '"><img src=x onerror=alert(1)>'})
+    with pytest.raises(ValueError):
+        fresh_db.save_settings({"browser": "firefox<script>"})
+    assert fresh_db.save_settings({"many_reviews": "70", "delay_min": 4})["many_reviews"] == 70

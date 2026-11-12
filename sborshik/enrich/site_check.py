@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import datetime as dt
 import html as html_lib
+import ipaddress
+import os
 import re
+import socket
 import ssl
 from urllib.parse import urljoin, urlparse
 
@@ -45,10 +48,37 @@ def _decode(response: httpx.Response) -> str:
     return response.text
 
 
-def _fetch(client: httpx.Client, url: str) -> tuple[httpx.Response | None, str]:
+INTERNAL_ERROR = "адрес ведёт во внутреннюю сеть, такие сайты не проверяются"
+
+
+def is_public_host(host: str) -> bool:
+    """Адрес сайта берётся из чужих карточек, поэтому в локальную сеть и на сам компьютер не ходим."""
+    if os.environ.get("SBORSHIK_ALLOW_PRIVATE") == "1":  # только для тестов на локальных макетах
+        return True
     try:
-        response = client.get(url)
-        return response, ""
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            addresses = [ipaddress.ip_address(info[4][0]) for info in socket.getaddrinfo(host, None)]
+        except (OSError, ValueError):
+            return True  # имя не разрешилось: запрос сам завершится ошибкой «сайт не отвечает»
+    return all(a.is_global for a in addresses)
+
+
+def _fetch(client: httpx.Client, url: str) -> tuple[httpx.Response | None, str]:
+    """GET с ручным проходом по перенаправлениям: каждый адрес проверяется отдельно."""
+    try:
+        for _hop in range(6):
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname or not is_public_host(parsed.hostname):
+                return None, INTERNAL_ERROR
+            response = client.get(url)
+            location = response.headers.get("location")
+            if response.status_code in (301, 302, 303, 307, 308) and location:
+                url = urljoin(url, location)
+                continue
+            return response, ""
+        return None, "слишком много перенаправлений"
     except httpx.ConnectError as exc:
         cause = exc.__cause__ or exc
         if isinstance(cause, ssl.SSLError) or "SSL" in str(exc) or "certificate" in str(exc).lower():
@@ -126,7 +156,7 @@ def check(site: str, timeout: int = 20) -> dict:
     port = urlparse(site if "://" in site else "http://" + site).port
     netloc = f"{host}:{port}" if port else host
     timeout = min(int(timeout), 25)
-    with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": USER_AGENT, "Accept-Language": "ru"}) as client:
+    with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": USER_AGENT, "Accept-Language": "ru"}) as client:
         response, error = (None, "")
         if not site.startswith("http://"):
             response, error = _fetch(client, f"https://{netloc}/")

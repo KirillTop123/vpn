@@ -29,7 +29,7 @@ def wait_ready(url: str, timeout: float = 20) -> bool:
     end = time.time() + timeout
     while time.time() < end:
         try:
-            urllib.request.urlopen(url + "/api/meta", timeout=1)
+            urllib.request.urlopen(url + "/", timeout=1)
             return True
         except OSError:
             time.sleep(0.2)

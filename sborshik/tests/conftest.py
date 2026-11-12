@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+os.environ["SBORSHIK_ALLOW_PRIVATE"] = "1"  # макеты сайтов живут на 127.0.0.x
 os.environ["SBORSHIK_HOME"] = tempfile.mkdtemp(prefix="sborshik-test-")
 
 import pytest  # noqa: E402

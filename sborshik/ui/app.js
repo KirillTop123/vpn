@@ -5,6 +5,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const main = $('#main');
+const TOKEN = { 'X-App-Token': $('meta[name=app-token]').content };
 
 const S = {
   view: 'collect', meta: null, settings: null, templates: [],
@@ -19,7 +20,8 @@ const FLAGS = [['has_tg', 'Есть Telegram'], ['has_wa', 'Есть WhatsApp'],
 
 async function api(path, body, method) {
   const opts = { method: method || (body === undefined ? 'GET' : 'POST') };
-  if (body !== undefined) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+  opts.headers = { ...TOKEN };
+  if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   let res;
   try { res = await fetch(path, opts); } catch (e) { throw new Error('Нет связи с приложением. Перезапустите программу.'); }
   const data = await res.json().catch(() => ({}));
@@ -206,7 +208,7 @@ let pollTimer = null;
 async function poll() {
   clearTimeout(pollTimer);
   try {
-    const st = await fetch('/api/job/status?since=' + S.lastLog).then((r) => r.json());
+    const st = await fetch('/api/job/status?since=' + S.lastLog, { headers: TOKEN }).then((r) => r.json());
     S.job = st;
     if (st.logs.length) { S.logs = S.logs.concat(st.logs).slice(-500); S.lastLog = st.logs[st.logs.length - 1].id; }
     const busy = st.status !== 'idle';
@@ -447,7 +449,7 @@ VIEWS.export = function () {
   $('#imp-btn').onclick = () => $('#imp-file').click();
   $('#imp-file').onchange = guard(async (e) => {
     const file = e.target.files[0]; if (!file) return;
-    const res = await fetch('/api/import?filename=' + encodeURIComponent(file.name), { method: 'POST', body: await file.arrayBuffer() });
+    const res = await fetch('/api/import?filename=' + encodeURIComponent(file.name), { method: 'POST', headers: TOKEN, body: await file.arrayBuffer() });
     const data = await res.json(); e.target.value = '';
     if (!res.ok) throw new Error(data.error || 'Импорт не удался');
     $('#imp-result').textContent = `Обновлено: ${data.updated}` + (data.skipped ? `, пропущено строк без подходящего ID: ${data.skipped}` : '');
@@ -459,7 +461,7 @@ VIEWS.export = function () {
 VIEWS.settings = guard(async () => {
   const [s, templates, meta] = await Promise.all([api('/api/settings'), api('/api/templates'), api('/api/meta')]);
   S.settings = s; S.meta = meta;
-  const num = (key, label, step) => `<label class="f">${label}<input type="number" data-set="${key}" value="${s[key]}" step="${step || 1}" min="0"></label>`;
+  const num = (key, label, step) => `<label class="f">${label}<input type="number" data-set="${esc(key)}" value="${esc(s[key])}" step="${esc(step || 1)}" min="0"></label>`;
   main.innerHTML = `<div class="view" style="max-width:1000px"><div class="head"><div><h1>Настройки</h1></div><button class="btn primary" id="save-set">Сохранить настройки</button></div><div class="stack">
     <div class="card"><h2>Вежливый режим</h2><p class="muted" style="margin:-6px 0 14px">Сбор идёт в одном окне браузера с паузами, как у человека. Чем спокойнее темп, тем реже источники просят капчу.</p>
       <div class="form-grid">${num('delay_min', 'Пауза между страницами, от (сек)', 0.5)}${num('delay_max', 'Пауза между страницами, до (сек)', 0.5)}${num('cards_per_hour', 'Страниц в час, не больше')}${num('max_pages', 'Страниц выдачи на запрос')}${num('page_timeout', 'Ждать загрузку страницы (сек)')}

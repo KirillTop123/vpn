@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import os
+import secrets
 import subprocess
 import sys
 import webbrowser
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import config
@@ -22,6 +23,23 @@ app = FastAPI(title=config.APP_NAME, docs_url=None, redoc_url=None)
 UI_DIR = config.resource_dir() / "ui"
 FLAGS = ("has_tg", "has_wa", "only_phone", "no_site", "site_down", "no_booking", "many_reviews", "hide_nmc", "only_nmc")
 log = config.setup_logging()
+
+
+# Токен создаётся при каждом запуске и вшивается в страницу интерфейса. Без него API не отвечает,
+# поэтому посторонний сайт, открытый в браузере, не может слать запросы приложению.
+APP_TOKEN = secrets.token_urlsafe(32)
+LOCAL_HOSTS = ("127.0.0.1", "localhost")
+
+
+@app.middleware("http")
+async def _local_only(request: Request, call_next):
+    host = request.headers.get("host", "").rsplit(":", 1)[0]
+    if host not in LOCAL_HOSTS:  # защита от подмены DNS
+        return JSONResponse({"error": "Доступ только с этого компьютера."}, status_code=403)
+    if request.url.path.startswith("/api/"):
+        if not secrets.compare_digest(request.headers.get("x-app-token", ""), APP_TOKEN):
+            return JSONResponse({"error": "Запрос отклонён: откройте приложение заново."}, status_code=403)
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -245,7 +263,8 @@ async def open_link(request: Request):
 
 @app.get("/")
 def index():
-    return FileResponse(UI_DIR / "index.html", headers={"Cache-Control": "no-store"})
+    page = (UI_DIR / "index.html").read_text("utf-8").replace("__APP_TOKEN__", APP_TOKEN)
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")

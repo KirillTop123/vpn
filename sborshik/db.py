@@ -137,7 +137,28 @@ def get_settings() -> dict:
     return result
 
 
+def _check_setting(key: str, value):
+    """Приводит значение настройки к нужному типу; мусор не сохраняется."""
+    default = config.DEFAULT_SETTINGS[key]
+    if key == "browser":
+        if value not in ("auto", "chromium", "msedge", "chrome"):
+            raise ValueError("Неизвестный браузер.")
+        return value
+    if isinstance(default, list):
+        if not isinstance(value, list):
+            raise ValueError("Стоп-слова должны быть списком.")
+        return [str(v).strip()[:100] for v in value if str(v).strip()][:500]
+    try:
+        number = float(value) if isinstance(default, float) else int(float(value))
+    except (TypeError, ValueError):
+        raise ValueError(f"Настройка «{key}» должна быть числом.") from None
+    if not 0 <= number <= 100000:
+        raise ValueError(f"Настройка «{key}»: значение вне допустимого диапазона.")
+    return number
+
+
 def save_settings(values: dict) -> dict:
+    values = {key: _check_setting(key, value) for key, value in values.items() if key in config.DEFAULT_SETTINGS}
     with _lock:
         for key, value in values.items():
             if key in config.DEFAULT_SETTINGS:
